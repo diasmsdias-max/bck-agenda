@@ -12,6 +12,7 @@ class SessionStore {
   SessionStore({FlutterSecureStorage? storage}) : _storage = storage ?? const FlutterSecureStorage();
   final FlutterSecureStorage _storage;
   static const _groupId='auth.groupId', _userId='auth.userId', _deviceId='auth.deviceId', _name='auth.name', _profile='auth.profile', _isOwner='auth.isOwner', _accessToken='auth.accessToken', _accessExpires='auth.accessExpires', _refreshToken='auth.refreshToken', _refreshExpires='auth.refreshExpires', _offlineLeaseExpires='auth.offlineLeaseExpires';
+  static const _authKeys=[_groupId,_userId,_deviceId,_name,_profile,_isOwner,_accessToken,_accessExpires,_refreshToken,_refreshExpires,_offlineLeaseExpires];
 
   Future<void> save(AuthSession session) async {
     await Future.wait([
@@ -33,5 +34,7 @@ class SessionStore {
     on FormatException { await clear(); return null; }
   }
 
-  Future<void> clear() => _storage.deleteAll();
+  Future<void> clear() async {
+    await Future.wait(_authKeys.map((key)=>_storage.delete(key:key)));
+  }
 }
