@@ -68,8 +68,14 @@ jobs:
 
           # SHARED: usuário ativo da mesma empresa pode entrar e o vínculo é criado no primeiro login.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
+          USER_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(jq -r .userId /tmp/login.json)" = "$USER_A"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A' and user_id='$USER_A'")" = 1
+
+          # Segurança administrativa: USER autenticado não pode gerar código de pareamento.
+          PAIR_USER_CODE=$(curl -s -o /tmp/pair-user.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')
+          test "$PAIR_USER_CODE" = 403
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where created_by_user_id='$USER_A'")" = 0
 
           # Mesmo dispositivo compartilhado também aceita outro usuário ativo da Empresa A.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
