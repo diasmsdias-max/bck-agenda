@@ -22,7 +22,7 @@ jobs:
         run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
 
   database:
-    name: PostgreSQL migration
+    name: PostgreSQL migrations
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -42,12 +42,20 @@ jobs:
       PGPASSWORD: bck_ci
     steps:
       - uses: actions/checkout@v4
-      - name: Apply foundation migration
-        run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/migrations/0001_foundation.sql
-      - name: Validate foundation schema
+      - name: Apply all migrations
+        run: |
+          for migration in database/migrations/*.sql; do
+            echo "Applying $migration"
+            psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Validate EP01 foundation schema
         run: |
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('bck_group','bck_user','device','audit_log','sync_event')")" = "5"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.columns where table_schema='public' and table_name='device' and column_name in ('device_mode','is_principal')")" = "2"
+      - name: Validate EP02 auth schema
+        run: |
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('refresh_token','device_pairing_token')")" = "2"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.columns where table_schema='public' and table_name='bck_user' and column_name in ('username','must_change_password','last_login_at')")" = "3"
 
   flutter:
     name: Flutter analyze and test
