@@ -23,7 +23,8 @@ class _SessionGateState extends State<SessionGate> {
 
     final now = DateTime.now().toUtc();
     if (now.isBefore(session.accessTokenExpiresAt.toUtc())) {
-      return HomeShell(session: session, offline: false);
+      widget.apiClient.setAccessToken(session.accessToken);
+      return HomeShell(session: session, offline: false, apiClient: widget.apiClient);
     }
 
     if (now.isBefore(session.refreshTokenExpiresAt.toUtc())) {
@@ -37,13 +38,23 @@ class _SessionGateState extends State<SessionGate> {
           offlineLeaseExpiresAt: refreshed.offlineLeaseExpiresAt,
         );
         final updated = await _store.read();
-        if (updated != null) return HomeShell(session: updated, offline: false);
+        if (updated != null) {
+          widget.apiClient.setAccessToken(updated.accessToken);
+          return HomeShell(session: updated, offline: false, apiClient: widget.apiClient);
+        }
       } catch (_) {
-        if (session.canOperateOffline) return HomeShell(session: session, offline: true);
+        if (session.canOperateOffline) {
+          widget.apiClient.setAccessToken(null);
+          return HomeShell(session: session, offline: true, apiClient: widget.apiClient);
+        }
       }
     }
 
-    if (session.canOperateOffline) return HomeShell(session: session, offline: true);
+    if (session.canOperateOffline) {
+      widget.apiClient.setAccessToken(null);
+      return HomeShell(session: session, offline: true, apiClient: widget.apiClient);
+    }
+    widget.apiClient.setAccessToken(null);
     await _store.clear();
     return WelcomePage(apiClient: widget.apiClient);
   }
