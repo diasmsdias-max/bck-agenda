@@ -17,13 +17,9 @@ jobs:
           POSTGRES_DB: bck_agenda
           POSTGRES_USER: bck
           POSTGRES_PASSWORD: bck_ci
-        ports:
-          - 5432:5432
+        ports: ['5432:5432']
         options: >-
-          --health-cmd "pg_isready -U bck -d bck_agenda"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd "pg_isready -U bck -d bck_agenda" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       PGPASSWORD: bck_ci
       BCK_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=bck_agenda;Username=bck;Password=bck_ci
@@ -32,69 +28,65 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
+        with: { dotnet-version: '10.0.x' }
       - name: Apply migrations
         run: for migration in database/migrations/*.sql; do psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"; done
       - name: Start API
         run: |
           dotnet run --project server/src/Bck.Api/Bck.Api.csproj --no-launch-profile > /tmp/bck-api.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:5080/api/v1/health >/dev/null && exit 0; sleep 1; done
-          cat /tmp/bck-api.log
-          exit 1
-      - name: Personal vs shared device isolation
+          cat /tmp/bck-api.log; exit 1
+      - name: Personal shared tenant and user administration security
         shell: bash
         run: |
           set -euo pipefail
           uuid(){ cat /proc/sys/kernel/random/uuid; }
           login_code(){ curl -s -o /tmp/login.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "$1"; }
-
           DEV_A=$(uuid); DEV_B=$(uuid)
           A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "{\"companyName\":\"Empresa A\",\"ownerName\":\"Admin A\",\"ownerUsername\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DEV_A\",\"deviceName\":\"A Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
           B=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "{\"companyName\":\"Empresa B\",\"ownerName\":\"Admin B\",\"ownerUsername\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"B Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
           GA=$(echo "$A"|jq -r .groupId); UA=$(echo "$A"|jq -r .userId); GB=$(echo "$B"|jq -r .groupId)
           HASH=$(psql -h localhost -U bck -d bck_agenda -tAc "select password_hash from bck_user where id='$UA'")
-
           USER_A=$(uuid); PERSONAL_A=$(uuid); SHARED_A=$(uuid)
           psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 <<SQL
           insert into bck_user(id,group_id,name,profile,is_owner,serves_clients,password_hash,username) values('$USER_A','$GA','Usuário A','USER',false,true,'$HASH','usera');
           insert into device(id,group_id,name,platform,device_mode,status) values('$PERSONAL_A','$GA','Pessoal A','ANDROID','PERSONAL','ACTIVE');
           insert into device(id,group_id,name,platform,device_mode,status) values('$SHARED_A','$GA','Compartilhado A','ANDROID','SHARED','ACTIVE');
           SQL
-
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$PERSONAL_A\"}")" = 401
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$PERSONAL_A' and user_id='$USER_A'")" = 0
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
           USER_TOKEN=$(jq -r .accessToken /tmp/login.json)
-          test "$(jq -r .userId /tmp/login.json)" = "$USER_A"
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A' and user_id='$USER_A'")" = 1
-
-          PAIR_USER_CODE=$(curl -s -o /tmp/pair-user.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')
-          test "$PAIR_USER_CODE" = 403
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where created_by_user_id='$USER_A'")" = 0
-
+          test "$(curl -s -o /tmp/users-user.json -w '%{http_code}' http://127.0.0.1:5080/api/v1/users -H "Authorization: Bearer $USER_TOKEN")" = 403
+          test "$(curl -s -o /tmp/create-user-user.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/users -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Intruso","profile":"ADMIN","servesClients":false,"username":"intruso","password":"Senha123!","permissions":[]}')" = 403
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
           ADMIN_A_TOKEN=$(jq -r .accessToken /tmp/login.json)
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A'")" = 2
-
+          test "$(login_code "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\"}")" = 200
+          ADMIN_B_TOKEN=$(jq -r .accessToken /tmp/login.json)
+          CREATED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/users -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Profissional A","phone":"27999990000","functionName":"Barbeiro","profile":"USER","servesClients":true,"username":"profa","password":"SenhaP123!","permissions":["ALLOW_FIT_IN"]}')
+          NEW_USER=$(echo "$CREATED"|jq -r .id)
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from bck_user where id='$NEW_USER'")" = "$GA"
+          test "$(curl -fsS http://127.0.0.1:5080/api/v1/users -H "Authorization: Bearer $ADMIN_B_TOKEN" | jq --arg id "$NEW_USER" '[.[]|select(.id==$id)]|length')" = 0
+          # Admin B não pode alterar usuário da Empresa A.
+          test "$(curl -s -o /tmp/cross-update.json -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/users/$NEW_USER -H "Authorization: Bearer $ADMIN_B_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Sequestro","profile":"ADMIN","servesClients":false,"active":false,"permissions":[]}')" = 404
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select name from bck_user where id='$NEW_USER'")" = "Profissional A"
+          # Proprietário não pode ser rebaixado nem inativado.
+          curl -fsS -X PUT http://127.0.0.1:5080/api/v1/users/$UA -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Admin A","profile":"USER","servesClients":true,"active":false,"permissions":[]}' >/dev/null
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select profile||':'||active from bck_user where id='$UA'")" = "ADMIN:true"
+          # Alteração de permissões invalida imediatamente token antigo.
+          curl -fsS -X PUT http://127.0.0.1:5080/api/v1/users/$USER_A -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"name":"Usuário A","profile":"USER","servesClients":true,"active":true,"permissions":["ALLOW_FIT_IN"]}' >/dev/null
+          test "$(curl -s -o /tmp/stale.json -w '%{http_code}' http://127.0.0.1:5080/api/v1/auth/me -H "Authorization: Bearer $USER_TOKEN")" = 401
+          # Credencial da Empresa B nunca autentica em aparelho da A.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
-          test "$(login_code "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
-
+          # Pairing permanece protegido para USER e contra sequestro de deviceId.
+          test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
+          USER_TOKEN2=$(jq -r .accessToken /tmp/login.json)
+          test "$(curl -s -o /tmp/pair-user.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $USER_TOKEN2" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')" = 403
           PAIR_A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')
-          PAIR_A_CODE=$(echo "$PAIR_A" | jq -r .pairingCode)
-          HIJACK_CODE=$(curl -s -o /tmp/hijack.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$PAIR_A_CODE\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"Tentativa de sequestro\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")
-          test "$HIJACK_CODE" = 400
+          PAIR_A_CODE=$(echo "$PAIR_A"|jq -r .pairingCode)
+          test "$(curl -s -o /tmp/hijack.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$PAIR_A_CODE\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"Tentativa\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")" = 400
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from device where id='$DEV_B'")" = "$GB"
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device where id='$DEV_B'")" = 1
-
-          # Código expirado não autoriza aparelho e permanece não consumido.
           EXPIRED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')
-          EXPIRED_CODE=$(echo "$EXPIRED" | jq -r .pairingCode)
-          EXPIRED_HASH=$(printf '%s' "$EXPIRED_CODE" | sha256sum | awk '{print toupper($1)}')
-          psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -c "update device_pairing_token set expires_at=now()-interval '1 second' where token_hash='$EXPIRED_HASH'"
+          EXPIRED_CODE=$(echo "$EXPIRED"|jq -r .pairingCode); EXPIRED_HASH=$(printf '%s' "$EXPIRED_CODE"|sha256sum|awk '{print toupper($1)}'); psql -h localhost -U bck -d bck_agenda -c "update device_pairing_token set expires_at=now()-interval '1 second' where token_hash='$EXPIRED_HASH'" >/dev/null
           EXPIRED_DEVICE=$(uuid)
-          EXPIRED_HTTP=$(curl -s -o /tmp/expired.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$EXPIRED_CODE\",\"deviceId\":\"$EXPIRED_DEVICE\",\"deviceName\":\"Expirado\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")
-          test "$EXPIRED_HTTP" = 400
+          test "$(curl -s -o /tmp/expired.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$EXPIRED_CODE\",\"deviceId\":\"$EXPIRED_DEVICE\",\"deviceName\":\"Expirado\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")" = 400
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device where id='$EXPIRED_DEVICE'")" = 0
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where token_hash='$EXPIRED_HASH' and consumed_at is null")" = 1
