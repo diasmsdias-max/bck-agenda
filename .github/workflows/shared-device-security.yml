@@ -62,25 +62,30 @@ jobs:
           insert into device(id,group_id,name,platform,device_mode,status) values('$SHARED_A','$GA','Compartilhado A','ANDROID','SHARED','ACTIVE');
           SQL
 
-          # PERSONAL: usuário válido da mesma empresa, mas sem vínculo, deve ser recusado.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$PERSONAL_A\"}")" = 401
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$PERSONAL_A' and user_id='$USER_A'")" = 0
 
-          # SHARED: usuário ativo da mesma empresa pode entrar e o vínculo é criado no primeiro login.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
           USER_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(jq -r .userId /tmp/login.json)" = "$USER_A"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A' and user_id='$USER_A'")" = 1
 
-          # Segurança administrativa: USER autenticado não pode gerar código de pareamento.
           PAIR_USER_CODE=$(curl -s -o /tmp/pair-user.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $USER_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')
           test "$PAIR_USER_CODE" = 403
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where created_by_user_id='$USER_A'")" = 0
 
-          # Mesmo dispositivo compartilhado também aceita outro usuário ativo da Empresa A.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
+          ADMIN_A_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A'")" = 2
 
-          # Empresa B jamais pode autenticar no dispositivo da Empresa A, mesmo sendo SHARED.
           test "$(login_code "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
+
+          # Um deviceId já pertencente à Empresa B não pode ser sequestrado por novo pareamento da Empresa A.
+          PAIR_A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')
+          PAIR_A_CODE=$(echo "$PAIR_A" | jq -r .pairingCode)
+          HIJACK_CODE=$(curl -s -o /tmp/hijack.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$PAIR_A_CODE\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"Tentativa de sequestro\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")
+          test "$HIJACK_CODE" = 400
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from device where id='$DEV_B'")" = "$GB"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device where id='$DEV_B'")" = 1
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where group_id='$GA' and token_hash is not null and consumed_at is null")" -ge 1
