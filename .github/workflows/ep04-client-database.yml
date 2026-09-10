@@ -38,3 +38,5 @@ jobs:
         run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/tests/ep04_client_tenant_isolation.sql
       - name: Verify EP04 client lifecycle contract
         run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/tests/ep04_client_lifecycle.sql
+      - name: Verify EP04 history lifecycle contract
+        run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/tests/ep04_client_history_lifecycle.sql
