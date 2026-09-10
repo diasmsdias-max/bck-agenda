@@ -19,6 +19,6 @@ void main() {
     expect(find.text('BCK Agenda'), findsOneWidget);
     expect(find.text('Organize. Atenda. Gerencie.'), findsOneWidget);
     expect(find.text('Criar minha empresa'), findsOneWidget);
-    expect(find.text('Sincronizar com empresa existente'), findsOneWidget);
+    expect(find.text('Conectar a uma empresa existente'), findsOneWidget);
   });
 }
