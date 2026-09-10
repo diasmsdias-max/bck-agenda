@@ -1,0 +1,18 @@
+import 'package:flutter/material.dart';
+import '../../core/auth/session_store.dart';
+import 'client_api.dart';
+import 'client_detail_page.dart';
+import 'client_form_page.dart';
+import 'client_models.dart';
+
+class ClientsPage extends StatefulWidget { const ClientsPage({super.key,required this.session}); final StoredSession session; @override State<ClientsPage> createState()=>_ClientsPageState(); }
+class _ClientsPageState extends State<ClientsPage>{
+  final _search=TextEditingController();late final ClientApi _api;bool _loading=true;String? _error;List<ManagedClient> _clients=const[];
+  @override void initState(){super.initState();_api=ClientApi(accessToken:widget.session.accessToken);_load();}
+  @override void dispose(){_search.dispose();super.dispose();}
+  Future<void> _load()async{setState((){_loading=true;_error=null;});try{final items=await _api.list(query:_search.text.trim());if(mounted)setState(()=>_clients=items);}catch(_){if(mounted)setState(()=>_error='Não foi possível carregar os clientes.');}finally{if(mounted)setState(()=>_loading=false);}}
+  Future<void> _newClient()async{final changed=await Navigator.push<bool>(context,MaterialPageRoute(builder:(_)=>ClientFormPage(api:_api,client:null)));if(changed==true)await _load();}
+  Future<void> _open(ManagedClient client)async{final changed=await Navigator.push<bool>(context,MaterialPageRoute(builder:(_)=>ClientDetailPage(api:_api,clientId:client.id,isAdmin:widget.session.profile=='ADMIN')));if(changed==true||mounted)await _load();}
+  @override Widget build(BuildContext context)=>SafeArea(child:Column(children:[Padding(padding:const EdgeInsets.fromLTRB(20,20,20,12),child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Row(children:[Expanded(child:Text('Clientes',style:Theme.of(context).textTheme.headlineMedium?.copyWith(fontWeight:FontWeight.w700))),FilledButton.icon(onPressed:_newClient,icon:const Icon(Icons.person_add_alt_1_rounded),label:const Text('Novo'))]),const SizedBox(height:14),TextField(controller:_search,textInputAction:TextInputAction.search,onSubmitted:(_)=>_load(),decoration:InputDecoration(prefixIcon:const Icon(Icons.search_rounded),hintText:'Pesquisar por nome ou telefone',suffixIcon:IconButton(onPressed:_load,icon:const Icon(Icons.refresh_rounded))))])),Expanded(child:_body())]));
+  Widget _body(){if(_loading)return const Center(child:CircularProgressIndicator());if(_error!=null)return Center(child:Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,children:[Text(_error!),const SizedBox(height:12),FilledButton(onPressed:_load,child:const Text('Tentar novamente'))])));if(_clients.isEmpty)return Center(child:Padding(padding:const EdgeInsets.all(24),child:Column(mainAxisSize:MainAxisSize.min,children:[const Icon(Icons.people_outline_rounded,size:52),const SizedBox(height:12),const Text('Nenhum cliente encontrado',style:TextStyle(fontWeight:FontWeight.w700)),const SizedBox(height:6),const Text('Cadastre um cliente ou altere a pesquisa.'),const SizedBox(height:16),FilledButton.icon(onPressed:_newClient,icon:const Icon(Icons.person_add_alt_1_rounded),label:const Text('Cadastrar cliente'))])));return RefreshIndicator(onRefresh:_load,child:ListView.separated(padding:const EdgeInsets.fromLTRB(16,4,16,100),itemCount:_clients.length,separatorBuilder:(_,__)=>const SizedBox(height:4),itemBuilder:(_,i){final c=_clients[i];return Card(child:ListTile(onTap:()=>_open(c),leading:CircleAvatar(child:Text(c.name.isEmpty?'?':c.name[0].toUpperCase())),title:Text(c.name,style:const TextStyle(fontWeight:FontWeight.w600)),subtitle:Text(c.phone),trailing:const Icon(Icons.chevron_right_rounded)));}));}
+}

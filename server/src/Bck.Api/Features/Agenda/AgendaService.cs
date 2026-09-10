@@ -59,8 +59,6 @@ public sealed class AgendaService(IConfiguration configuration)
         var endsAt = request.StartsAt.AddMinutes(request.DurationMinutes);
 
         await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); await using var transaction = await connection.BeginTransactionAsync(ct);
-        // Serialize appointment creation for one professional inside the transaction. This closes
-        // the race where two concurrent requests could both pass an availability check and insert.
         await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", connection, transaction))
         {
             lockCommand.Parameters.AddWithValue($"{request.GroupId:N}:{request.ProfessionalUserId:N}");
@@ -94,7 +92,7 @@ public sealed class AgendaService(IConfiguration configuration)
     private static async Task<List<AppointmentSummary>> FindAppointmentsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
     {
         var timeClause = overlap ? "a.starts_at < $4 AND a.ends_at > $3" : "a.starts_at >= $3 AND a.starts_at < $4";
-        var sql = $"SELECT a.id,a.professional_user_id,a.client_id,COALESCE(c.name,a.walk_in_name,'Cliente'),a.starts_at,a.ends_at,a.status,a.is_fit_in FROM appointment a LEFT JOIN client c ON c.id=a.client_id WHERE a.group_id=$1 AND a.professional_user_id=$2 AND a.status NOT IN ('CANCELLED','RESCHEDULED') AND {timeClause} ORDER BY a.starts_at";
+        var sql = $"SELECT a.id,a.professional_user_id,a.client_id,COALESCE(c.name,a.walk_in_name,'Cliente'),a.starts_at,a.ends_at,a.status,a.is_fit_in FROM appointment a LEFT JOIN client c ON c.id=a.client_id AND c.group_id=a.group_id WHERE a.group_id=$1 AND a.professional_user_id=$2 AND a.status NOT IN ('CANCELLED','RESCHEDULED') AND {timeClause} ORDER BY a.starts_at";
         await using var command = new NpgsqlCommand(sql, connection, transaction); command.Parameters.AddWithValue(groupId); command.Parameters.AddWithValue(professionalUserId); command.Parameters.AddWithValue(from); command.Parameters.AddWithValue(to);
         await using var reader = await command.ExecuteReaderAsync(ct); var result = new List<AppointmentSummary>(); while(await reader.ReadAsync(ct)) result.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.IsDBNull(2)?null:reader.GetGuid(2),reader.GetString(3),reader.GetFieldValue<DateTimeOffset>(4),reader.GetFieldValue<DateTimeOffset>(5),reader.GetString(6),reader.GetBoolean(7))); return result;
     }
