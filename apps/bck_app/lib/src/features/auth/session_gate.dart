@@ -21,7 +21,7 @@ class _SessionGateState extends State<SessionGate> {
     final session = await _store.read();
     if (session == null) return WelcomePage(apiClient: widget.apiClient);
 
-    final now = DateTime.now().toUtc();
+    final now = session.estimatedServerNow();
     if (now.isBefore(session.accessTokenExpiresAt.toUtc())) {
       widget.apiClient.setAccessToken(session.accessToken);
       return HomeShell(session: session, offline: false, apiClient: widget.apiClient);
@@ -36,6 +36,8 @@ class _SessionGateState extends State<SessionGate> {
           refreshToken: refreshed.refreshToken,
           refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
           offlineLeaseExpiresAt: refreshed.offlineLeaseExpiresAt,
+          serverTimeUtc: refreshed.serverTimeUtc,
+          validatedAt: refreshed.validatedAt,
         );
         final updated = await _store.read();
         if (updated != null) {
