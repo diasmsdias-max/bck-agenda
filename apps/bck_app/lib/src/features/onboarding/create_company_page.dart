@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../core/api/bck_api_client.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/device/device_identity_store.dart';
 
 class CreateCompanyPage extends StatefulWidget {
   const CreateCompanyPage({super.key, required this.apiClient});
@@ -20,6 +20,7 @@ class _CreateCompanyPageState extends State<CreateCompanyPage> {
   final _username = TextEditingController();
   final _password = TextEditingController();
   final _sessionStore = SessionStore();
+  final _deviceIdentityStore = DeviceIdentityStore();
   bool _busy = false;
 
   @override
@@ -36,7 +37,7 @@ class _CreateCompanyPageState extends State<CreateCompanyPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _busy = true);
     try {
-      final deviceId = const Uuid().v4();
+      final deviceId = await _deviceIdentityStore.getOrCreateDeviceId();
       final created = await widget.apiClient.createCompany(BootstrapCompanyRequest(
         companyName: _company.text.trim(),
         companyPhone: _phone.text.trim().isEmpty ? null : _phone.text.trim(),
