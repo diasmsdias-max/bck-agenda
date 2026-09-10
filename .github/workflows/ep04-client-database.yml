@@ -34,5 +34,7 @@ jobs:
           for migration in database/migrations/*.sql; do
             psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"
           done
-      - name: Verify EP04 client database contract
+      - name: Verify EP04 tenant isolation and phone contract
         run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/tests/ep04_client_tenant_isolation.sql
+      - name: Verify EP04 client lifecycle contract
+        run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/tests/ep04_client_lifecycle.sql
