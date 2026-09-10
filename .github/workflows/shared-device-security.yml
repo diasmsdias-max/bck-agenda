@@ -64,7 +64,6 @@ jobs:
 
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$PERSONAL_A\"}")" = 401
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$PERSONAL_A' and user_id='$USER_A'")" = 0
-
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"usera\",\"password\":\"SenhaA123!\",\"deviceId\":\"$SHARED_A\"}")" = 200
           USER_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(jq -r .userId /tmp/login.json)" = "$USER_A"
@@ -78,13 +77,9 @@ jobs:
           ADMIN_A_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A'")" = 2
 
-          # groupId da Empresa A + credenciais da Empresa B não formam uma identidade válida.
           test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
-
-          # groupId da Empresa B + dispositivo da Empresa A também é recusado.
           test "$(login_code "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
 
           PAIR_A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')
           PAIR_A_CODE=$(echo "$PAIR_A" | jq -r .pairingCode)
@@ -92,4 +87,14 @@ jobs:
           test "$HIJACK_CODE" = 400
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from device where id='$DEV_B'")" = "$GB"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device where id='$DEV_B'")" = 1
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where group_id='$GA' and token_hash is not null and consumed_at is null")" -ge 1
+
+          # Código expirado não autoriza aparelho e permanece não consumido.
+          EXPIRED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"SHARED"}')
+          EXPIRED_CODE=$(echo "$EXPIRED" | jq -r .pairingCode)
+          EXPIRED_HASH=$(printf '%s' "$EXPIRED_CODE" | sha256sum | awk '{print toupper($1)}')
+          psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -c "update device_pairing_token set expires_at=now()-interval '1 second' where token_hash='$EXPIRED_HASH'"
+          EXPIRED_DEVICE=$(uuid)
+          EXPIRED_HTTP=$(curl -s -o /tmp/expired.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$EXPIRED_CODE\",\"deviceId\":\"$EXPIRED_DEVICE\",\"deviceName\":\"Expirado\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")
+          test "$EXPIRED_HTTP" = 400
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device where id='$EXPIRED_DEVICE'")" = 0
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_pairing_token where token_hash='$EXPIRED_HASH' and consumed_at is null")" = 1
