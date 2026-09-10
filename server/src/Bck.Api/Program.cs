@@ -1,3 +1,4 @@
+using Bck.Api.Features.Auth;
 using Bck.Api.Features.Bootstrap;
 using Bck.Api.Infrastructure.Database;
 
@@ -7,6 +8,7 @@ builder.Services.AddHealthChecks();
 builder.Services.AddOpenApi();
 builder.Services.AddSingleton<PostgresProbe>();
 builder.Services.AddScoped<BootstrapService>();
+builder.Services.AddScoped<AuthService>();
 
 var app = builder.Build();
 
@@ -47,6 +49,14 @@ app.MapPost("/api/v1/bootstrap/company", async (CreateCompanyRequest request, Bo
     {
         return Results.BadRequest(new { code = "VALIDATION_ERROR", message = ex.Message });
     }
+});
+
+app.MapPost("/api/v1/auth/login", async (LoginRequest request, AuthService service, CancellationToken ct) =>
+{
+    var result = await service.LoginAsync(request, ct);
+    return result is null
+        ? Results.Json(new { code = "INVALID_CREDENTIALS", message = "Credenciais ou dispositivo inválidos." }, statusCode: 401)
+        : Results.Ok(result);
 });
 
 app.MapHealthChecks("/health");
