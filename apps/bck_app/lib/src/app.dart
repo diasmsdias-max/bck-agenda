@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
 
 import 'core/api/bck_api_client.dart';
-import 'features/system/connection_page.dart';
+import 'features/onboarding/welcome_page.dart';
 
 class BckAgendaApp extends StatelessWidget {
   const BckAgendaApp({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final apiClient = BckApiClient();
     return MaterialApp(
       title: 'BCK Agenda',
       debugShowCheckedModeBanner: false,
@@ -15,9 +16,10 @@ class BckAgendaApp extends StatelessWidget {
         brightness: Brightness.dark,
         colorSchemeSeed: const Color(0xFFD6A84B),
         scaffoldBackgroundColor: const Color(0xFF10151D),
+        inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
         useMaterial3: true,
       ),
-      home: ConnectionPage(apiClient: BckApiClient()),
+      home: WelcomePage(apiClient: apiClient),
     );
   }
 }
