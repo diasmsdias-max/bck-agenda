@@ -46,25 +46,22 @@ jobs:
           A=$(make_company 'EP04 A' 'ep04a' 'SenhaA123!')
           B=$(make_company 'EP04 B' 'ep04b' 'SenhaB123!')
           GA=${A%%|*}; TA=${A#*|}; GB=${B%%|*}; TB=${B#*|}; test "$GA" != "$GB"
-
           CLIENT_A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Cliente A","phone":"(27) 99999-0101","birthDate":"1990-05-20"}')
           ID_A=$(echo "$CLIENT_A" | jq -r .id); VER_A=$(echo "$CLIENT_A" | jq -r .version)
           test -n "$ID_A"; test "$ID_A" != null
 
-          # Mesmo telefone em outro tenant é válido; no mesmo tenant deve retornar 409 controlado.
           curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Cliente B","phone":"27 99999-0101"}' >/dev/null
           DUP_BODY=$(mktemp)
           DUP_CODE=$(curl -s -o "$DUP_BODY" -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Duplicado A","phone":"27.99999.0101"}')
           test "$DUP_CODE" = 409
           test "$(jq -r .code "$DUP_BODY")" = CLIENT_PHONE_DUPLICATE
 
-          # Atualização válida incrementa versão; versão antiga deve receber 409.
           UPDATE=$(jq -nc --argjson v "$VER_A" '{name:"Cliente A Atualizado",phone:"27999990101",whatsAppEnabled:true,notes:"versão nova",birthDate:"1990-05-20",version:$v}')
-          NEW=$(curl -fsS -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d "$UPDATE")
-          test "$(echo "$NEW" | jq -r .version)" -gt "$VER_A"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d "$UPDATE")" = 204
+          AFTER=$(curl -fsS http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA")
+          test "$(echo "$AFTER" | jq -r .version)" -gt "$VER_A"
           test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d "$UPDATE")" = 409
 
-          # Tenant B não pode ler, alterar, excluir, consultar histórico ou reativar cliente A.
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB")" = 404
           INTRUDER=$(jq -nc --argjson v "$VER_A" '{name:"Intruso",phone:"27999990199",whatsAppEnabled:true,notes:null,birthDate:null,version:$v}')
           test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d "$INTRUDER")" = 404
@@ -73,7 +70,6 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/clients/$ID_A/reactivate -H "Authorization: Bearer $TB")" = 404
           DUP_B=$(curl -fsS 'http://127.0.0.1:5080/api/v1/clients/duplicates?phone=27999990101' -H "Authorization: Bearer $TB")
           test "$(echo "$DUP_B" | jq '[.[] | select(.id=="'$ID_A'")] | length')" = 0
-
           OWN=$(curl -fsS http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA")
           test "$(echo "$OWN" | jq -r .name)" = 'Cliente A Atualizado'
           test "$(echo "$OWN" | jq -r .birthDate)" = '1990-05-20'
