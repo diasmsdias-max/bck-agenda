@@ -73,3 +73,13 @@ jobs:
           OWN=$(curl -fsS http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA")
           test "$(echo "$OWN" | jq -r .name)" = 'Cliente A Atualizado'
           test "$(echo "$OWN" | jq -r .birthDate)" = '1990-05-20'
+
+          # Sem histórico operacional, a exclusão administrativa é definitiva.
+          FREE=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Cliente Sem Histórico","phone":"27999990102"}')
+          FREE_ID=$(echo "$FREE" | jq -r .id)
+          FREE_DELETE=$(mktemp)
+          test "$(curl -s -o "$FREE_DELETE" -w '%{http_code}' -X DELETE http://127.0.0.1:5080/api/v1/clients/$FREE_ID -H "Authorization: Bearer $TA")" = 200
+          test "$(jq -r .result "$FREE_DELETE")" = DELETED
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/clients/$FREE_ID -H "Authorization: Bearer $TA")" = 404
+          LIST_ALL=$(curl -fsS 'http://127.0.0.1:5080/api/v1/clients?includeInactive=true' -H "Authorization: Bearer $TA")
+          test "$(echo "$LIST_ALL" | jq '[.[] | select(.id=="'$FREE_ID'")] | length')" = 0
