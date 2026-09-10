@@ -5,16 +5,109 @@ import 'client_models.dart';
 
 class ClientDetailPage extends StatefulWidget {
   const ClientDetailPage({super.key,required this.api,required this.clientId,required this.isAdmin});
-  final ClientApi api; final String clientId; final bool isAdmin;
+  final ClientApi api;
+  final String clientId;
+  final bool isAdmin;
   @override State<ClientDetailPage> createState()=>_ClientDetailPageState();
 }
+
 class _ClientDetailPageState extends State<ClientDetailPage>{
-  ManagedClient? _client; List<ClientHistoryItem> _history=const[]; bool _loading=true; String? _error;
+  ManagedClient? _client;
+  List<ClientHistoryItem> _history=const[];
+  bool _loading=true;
+  String? _error;
+
   @override void initState(){super.initState();_load();}
-  Future<void> _load()async{setState((){_loading=true;_error=null;});try{final c=await widget.api.get(widget.clientId);final h=await widget.api.history(widget.clientId);if(mounted)setState((){_client=c;_history=h;});}catch(_){if(mounted)setState(()=>_error='Não foi possível carregar a ficha do cliente.');}finally{if(mounted)setState(()=>_loading=false);}}
-  Future<void> _edit()async{final c=_client;if(c==null)return;final changed=await Navigator.push<bool>(context,MaterialPageRoute(builder:(_)=>ClientFormPage(api:widget.api,client:c)));if(changed==true)await _load();}
-  Future<void> _remove()async{final c=_client;if(c==null)return;final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(title:Text(c.active?'Excluir ou inativar cliente':'Cliente inativo'),content:Text(c.active?'Se houver histórico, o cadastro será inativado e preservado. Sem histórico, será excluído definitivamente.':'Este cadastro está inativo.'),actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancelar')),if(c.active)FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Confirmar'))]))??false;if(!ok)return;try{final result=await widget.api.remove(c.id);if(!mounted)return;if(result=='DELETED'){Navigator.pop(context,true);return;}await _load();}catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Não foi possível alterar o cadastro.')));}}
-  Future<void> _reactivate()async{try{await widget.api.reactivate(widget.clientId);await _load();}catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Não foi possível reativar o cliente.')));}}
-  @override Widget build(BuildContext context){return Scaffold(appBar:AppBar(title:const Text('Ficha do cliente'),actions:[if(_client?.active==true)IconButton(onPressed:_edit,icon:const Icon(Icons.edit_outlined),tooltip:'Editar')]),body:_body());}
-  Widget _body(){if(_loading)return const Center(child:CircularProgressIndicator());if(_error!=null)return Center(child:FilledButton(onPressed:_load,child:const Text('Tentar novamente')));final c=_client!;return RefreshIndicator(onRefresh:_load,child:ListView(padding:const EdgeInsets.all(20),children:[Row(children:[CircleAvatar(radius:30,child:Text(c.name.isEmpty?'?':c.name[0].toUpperCase(),style:const TextStyle(fontSize:24))),const SizedBox(width:14),Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[Text(c.name,style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w700)),Text(c.phone),if(!c.active)const Padding(padding:EdgeInsets.only(top:4),child:Text('INATIVO',style:TextStyle(fontWeight:FontWeight.w700)))])]),const SizedBox(height:20),Card(child:Column(children:[ListTile(leading:const Icon(Icons.chat_outlined),title:const Text('WhatsApp'),subtitle:Text(c.whatsAppEnabled?'Disponível neste número':'Não informado para este número')),if(c.birthDate!=null)ListTile(leading:const Icon(Icons.cake_outlined),title:const Text('Nascimento'),subtitle:Text(c.birthDate!.toIso8601String().split('T').first)),if(c.notes?.isNotEmpty==true)ListTile(leading:const Icon(Icons.notes_outlined),title:const Text('Observações'),subtitle:Text(c.notes!))])),const SizedBox(height:22),Text('Histórico de atendimentos',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w700)),const SizedBox(height:8),if(_history.isEmpty)const Card(child:ListTile(leading:Icon(Icons.history_rounded),title:Text('Nenhum atendimento registrado')))else ..._history.map((h)=>Card(child:ListTile(leading:const Icon(Icons.event_available_outlined),title:Text(h.serviceName??'Atendimento'),subtitle:Text('${h.professionalName}\n${h.startsAt.toLocal()}'),isThreeLine:true,trailing:Text(h.status)))),if(widget.isAdmin)...[const SizedBox(height:24),if(c.active)OutlinedButton.icon(onPressed:_remove,icon:const Icon(Icons.person_off_outlined),label:const Text('Excluir / inativar cliente'))else FilledButton.icon(onPressed:_reactivate,icon:const Icon(Icons.person_add_alt_1_rounded),label:const Text('Reativar cliente'))],const SizedBox(height:80)]));}
+
+  Future<void> _load()async{
+    setState((){_loading=true;_error=null;});
+    try{
+      final c=await widget.api.get(widget.clientId);
+      final h=await widget.api.history(widget.clientId);
+      if(mounted)setState((){_client=c;_history=h;});
+    }catch(_){if(mounted)setState(()=>_error='Não foi possível carregar a ficha do cliente.');}
+    finally{if(mounted)setState(()=>_loading=false);}
+  }
+
+  Future<void> _edit()async{
+    final c=_client;if(c==null)return;
+    final changed=await Navigator.push<bool>(context,MaterialPageRoute(builder:(_)=>ClientFormPage(api:widget.api,client:c)));
+    if(changed==true)await _load();
+  }
+
+  Future<void> _remove()async{
+    final c=_client;if(c==null)return;
+    final ok=await showDialog<bool>(context:context,builder:(x)=>AlertDialog(
+      title:const Text('Excluir ou inativar cliente'),
+      content:const Text('Se houver histórico, o cadastro será inativado e preservado. Sem histórico, será excluído definitivamente.'),
+      actions:[TextButton(onPressed:()=>Navigator.pop(x,false),child:const Text('Cancelar')),FilledButton(onPressed:()=>Navigator.pop(x,true),child:const Text('Confirmar'))],
+    ))??false;
+    if(!ok)return;
+    try{
+      final result=await widget.api.remove(c.id);
+      if(!mounted)return;
+      if(result=='DELETED'){Navigator.pop(context,true);return;}
+      await _load();
+    }catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Não foi possível alterar o cadastro.')));}
+  }
+
+  Future<void> _reactivate()async{
+    try{await widget.api.reactivate(widget.clientId);await _load();}
+    catch(_){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Não foi possível reativar o cliente.')));}
+  }
+
+  @override Widget build(BuildContext context)=>Scaffold(
+    appBar:AppBar(title:const Text('Ficha do cliente'),actions:[if(_client?.active==true)IconButton(onPressed:_edit,icon:const Icon(Icons.edit_outlined),tooltip:'Editar')]),
+    body:_body(),
+  );
+
+  Widget _body(){
+    if(_loading)return const Center(child:CircularProgressIndicator());
+    if(_error!=null)return Center(child:FilledButton(onPressed:_load,child:const Text('Tentar novamente')));
+    final c=_client!;
+    return RefreshIndicator(
+      onRefresh:_load,
+      child:ListView(
+        padding:const EdgeInsets.all(20),
+        children:[
+          Row(children:[
+            CircleAvatar(radius:30,child:Text(c.name.isEmpty?'?':c.name[0].toUpperCase(),style:const TextStyle(fontSize:24))),
+            const SizedBox(width:14),
+            Expanded(child:Column(crossAxisAlignment:CrossAxisAlignment.start,children:[
+              Text(c.name,style:Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight:FontWeight.w700)),
+              Text(c.phone),
+              if(!c.active)const Padding(padding:EdgeInsets.only(top:4),child:Text('INATIVO',style:TextStyle(fontWeight:FontWeight.w700))),
+            ])),
+          ]),
+          const SizedBox(height:20),
+          Card(child:Column(children:[
+            ListTile(leading:const Icon(Icons.chat_outlined),title:const Text('WhatsApp'),subtitle:Text(c.whatsAppEnabled?'Disponível neste número':'Não informado para este número')),
+            if(c.birthDate!=null)ListTile(leading:const Icon(Icons.cake_outlined),title:const Text('Nascimento'),subtitle:Text(c.birthDate!.toIso8601String().split('T').first)),
+            if(c.notes?.isNotEmpty==true)ListTile(leading:const Icon(Icons.notes_outlined),title:const Text('Observações'),subtitle:Text(c.notes!)),
+          ])),
+          const SizedBox(height:22),
+          Text('Histórico de atendimentos',style:Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight:FontWeight.w700)),
+          const SizedBox(height:8),
+          if(_history.isEmpty)
+            const Card(child:ListTile(leading:Icon(Icons.history_rounded),title:Text('Nenhum atendimento registrado')))
+          else
+            ..._history.map((h)=>Card(child:ListTile(
+              leading:const Icon(Icons.event_available_outlined),
+              title:Text(h.serviceName??'Atendimento'),
+              subtitle:Text('${h.professionalName}\n${h.startsAt.toLocal()}'),
+              isThreeLine:true,
+              trailing:Text(h.status),
+            ))),
+          if(widget.isAdmin)...[
+            const SizedBox(height:24),
+            if(c.active)
+              OutlinedButton.icon(onPressed:_remove,icon:const Icon(Icons.person_off_outlined),label:const Text('Excluir / inativar cliente'))
+            else
+              FilledButton.icon(onPressed:_reactivate,icon:const Icon(Icons.person_add_alt_1_rounded),label:const Text('Reativar cliente')),
+          ],
+          const SizedBox(height:80),
+        ],
+      ),
+    );
+  }
 }
