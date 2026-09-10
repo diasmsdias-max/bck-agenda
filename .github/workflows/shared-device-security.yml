@@ -78,10 +78,14 @@ jobs:
           ADMIN_A_TOKEN=$(jq -r .accessToken /tmp/login.json)
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user where device_id='$SHARED_A'")" = 2
 
+          # groupId da Empresa A + credenciais da Empresa B não formam uma identidade válida.
+          test "$(login_code "{\"groupId\":\"$GA\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
+
+          # groupId da Empresa B + dispositivo da Empresa A também é recusado.
           test "$(login_code "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$SHARED_A\"}")" = 401
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from device_user du join bck_user u on u.id=du.user_id where du.device_id='$SHARED_A' and u.group_id='$GB'")" = 0
 
-          # Um deviceId já pertencente à Empresa B não pode ser sequestrado por novo pareamento da Empresa A.
           PAIR_A=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $ADMIN_A_TOKEN" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')
           PAIR_A_CODE=$(echo "$PAIR_A" | jq -r .pairingCode)
           HIJACK_CODE=$(curl -s -o /tmp/hijack.json -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$PAIR_A_CODE\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"Tentativa de sequestro\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")
