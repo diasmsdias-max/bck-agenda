@@ -1,135 +1,30 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/bck_api_client.dart';
+import '../../core/auth/session_store.dart';
+
 class AgendaPage extends StatefulWidget {
-  const AgendaPage({super.key, required this.isAdmin});
-  final bool isAdmin;
-
-  @override
-  State<AgendaPage> createState() => _AgendaPageState();
+  const AgendaPage({super.key,required this.session,required this.apiClient});
+  final StoredSession session; final BckApiClient apiClient;
+  @override State<AgendaPage> createState()=>_AgendaPageState();
 }
-
-class _AgendaPageState extends State<AgendaPage> {
-  int _view = 0;
-  String _scope = 'Minha';
-  DateTime _selectedDay = DateTime.now();
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
-            child: Row(
-              children: [
-                Expanded(child: Text('Agenda', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700))),
-                IconButton(onPressed: _pickDate, icon: const Icon(Icons.calendar_today_rounded)),
-              ],
-            ),
-          ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            child: SegmentedButton<int>(
-              segments: const [
-                ButtonSegment(value: 0, label: Text('Hoje')),
-                ButtonSegment(value: 1, label: Text('Semana')),
-                ButtonSegment(value: 2, label: Text('Mês')),
-              ],
-              selected: {_view},
-              onSelectionChanged: (value) => setState(() => _view = value.first),
-            ),
-          ),
-          if (widget.isAdmin) ...[
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Row(children: [
-                const Text('Visualizar:'),
-                const SizedBox(width: 12),
-                DropdownButton<String>(value: _scope, items: const [DropdownMenuItem(value: 'Minha', child: Text('Minha agenda')), DropdownMenuItem(value: 'Todos', child: Text('Todos'))], onChanged: (value) => setState(() => _scope = value ?? 'Minha')),
-              ]),
-            ),
-          ],
-          const SizedBox(height: 12),
-          _DateHeader(day: _selectedDay),
-          const Divider(height: 1),
-          Expanded(child: _view == 0 ? const _TodayTimeline() : _EmptyPeriod(view: _view)),
-        ],
-      ),
-    );
-  }
-
-  Future<void> _pickDate() async {
-    final selected = await showDatePicker(context: context, initialDate: _selectedDay, firstDate: DateTime(2020), lastDate: DateTime(2100));
-    if (selected != null) setState(() => _selectedDay = selected);
-  }
+class _AgendaPageState extends State<AgendaPage>{
+  DateTime _day=DateTime.now(); late Future<List<AppointmentItem>> _items;
+  @override void initState(){super.initState();_reload();}
+  void _reload(){final from=DateTime(_day.year,_day.month,_day.day);_items=widget.apiClient.appointments(groupId:widget.session.groupId,professionalUserId:widget.session.userId,from:from,to:from.add(const Duration(days:1)));}
+  Future<void> _pick() async {final d=await showDatePicker(context:context,initialDate:_day,firstDate:DateTime(2020),lastDate:DateTime(2100));if(d!=null)setState((){_day=d;_reload();});}
+  @override Widget build(BuildContext context)=>SafeArea(child:Column(children:[Padding(padding:const EdgeInsets.all(20),child:Row(children:[Expanded(child:Text('Agenda',style:Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight:FontWeight.w700))),IconButton(onPressed:_pick,icon:const Icon(Icons.calendar_today_rounded))])),Padding(padding:const EdgeInsets.symmetric(horizontal:20),child:Row(children:[const Icon(Icons.today_rounded,color:Color(0xFFD6A84B)),const SizedBox(width:10),Text('${_day.day.toString().padLeft(2,'0')}/${_day.month.toString().padLeft(2,'0')}/${_day.year}',style:const TextStyle(fontWeight:FontWeight.w700))])),const SizedBox(height:12),Expanded(child:FutureBuilder<List<AppointmentItem>>(future:_items,builder:(context,s){if(s.connectionState!=ConnectionState.done)return const Center(child:CircularProgressIndicator());if(s.hasError)return Center(child:Text('Não foi possível carregar a agenda.\n${s.error}',textAlign:TextAlign.center));final items=s.data??[];return RefreshIndicator(onRefresh:()async=>setState(_reload),child:ListView.builder(padding:const EdgeInsets.fromLTRB(12,8,12,100),itemCount:11,itemBuilder:(context,i){final hour=i+8;final atHour=items.where((a)=>a.startsAt.toLocal().hour==hour).toList();return SizedBox(height:76,child:Row(crossAxisAlignment:CrossAxisAlignment.start,children:[SizedBox(width:52,child:Padding(padding:const EdgeInsets.only(top:12),child:Text('${hour.toString().padLeft(2,'0')}:00',style:const TextStyle(color:Colors.white60)))),Expanded(child:atHour.isEmpty?_FreeSlot(onTap:()=>_openNew(hour)):_AppointmentCard(item:atHour.first))]));}));})),]));
+  Future<void> _openNew(int hour) async {final created=await Navigator.push<bool>(context,MaterialPageRoute(builder:(_)=>NewAppointmentPage(session:widget.session,apiClient:widget.apiClient,day:_day,initialHour:hour)));if(created==true)setState(_reload);}
 }
+class _FreeSlot extends StatelessWidget{const _FreeSlot({required this.onTap});final VoidCallback onTap;@override Widget build(BuildContext context)=>InkWell(onTap:onTap,borderRadius:BorderRadius.circular(12),child:Container(margin:const EdgeInsets.only(bottom:8),padding:const EdgeInsets.symmetric(horizontal:14),decoration:BoxDecoration(borderRadius:BorderRadius.circular(12),border:Border.all(color:Colors.white12)),child:const Row(children:[Icon(Icons.add_rounded,size:18,color:Colors.white38),SizedBox(width:8),Text('Horário disponível',style:TextStyle(color:Colors.white38))])));}
+class _AppointmentCard extends StatelessWidget{const _AppointmentCard({required this.item});final AppointmentItem item;@override Widget build(BuildContext context)=>Card(margin:const EdgeInsets.only(bottom:8),child:ListTile(dense:true,leading:const Icon(Icons.person_rounded,color:Color(0xFFD6A84B)),title:Text(item.clientName,style:const TextStyle(fontWeight:FontWeight.w700)),subtitle:Text('${_hm(item.startsAt.toLocal())}–${_hm(item.endsAt.toLocal())} • ${item.status}')));static String _hm(DateTime d)=>'${d.hour.toString().padLeft(2,'0')}:${d.minute.toString().padLeft(2,'0')}';}
 
-class _DateHeader extends StatelessWidget {
-  const _DateHeader({required this.day});
-  final DateTime day;
-  @override
-  Widget build(BuildContext context) {
-    const months = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-    return Padding(padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12), child: Row(children: [const Icon(Icons.today_rounded, color: Color(0xFFD6A84B)), const SizedBox(width: 10), Text('${day.day} ${months[day.month - 1]} ${day.year}', style: const TextStyle(fontWeight: FontWeight.w700))]));
-  }
-}
-
-class _TodayTimeline extends StatelessWidget {
-  const _TodayTimeline();
-  @override
-  Widget build(BuildContext context) {
-    final hours = List<int>.generate(11, (index) => index + 8);
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 100),
-      itemCount: hours.length,
-      itemBuilder: (context, index) {
-        final hour = hours[index];
-        return SizedBox(
-          height: 72,
-          child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            SizedBox(width: 52, child: Padding(padding: const EdgeInsets.only(top: 10), child: Text('${hour.toString().padLeft(2, '0')}:00', style: const TextStyle(color: Colors.white60)))),
-            Expanded(child: InkWell(onTap: () => _newAppointment(context, hour), borderRadius: BorderRadius.circular(12), child: Container(margin: const EdgeInsets.only(bottom: 8), padding: const EdgeInsets.symmetric(horizontal: 14), decoration: BoxDecoration(borderRadius: BorderRadius.circular(12), border: Border.all(color: Colors.white12)), child: const Row(children: [Icon(Icons.add_rounded, size: 18, color: Colors.white38), SizedBox(width: 8), Text('Horário disponível', style: TextStyle(color: Colors.white38))])))),
-          ]),
-        );
-      },
-    );
-  }
-
-  void _newAppointment(BuildContext context, int hour) {
-    Navigator.of(context).push(MaterialPageRoute(builder: (_) => NewAppointmentPage(initialHour: hour)));
-  }
-}
-
-class _EmptyPeriod extends StatelessWidget {
-  const _EmptyPeriod({required this.view});
-  final int view;
-  @override
-  Widget build(BuildContext context) => Center(child: Column(mainAxisSize: MainAxisSize.min, children: [const Icon(Icons.calendar_view_week_rounded, size: 52, color: Color(0xFFD6A84B)), const SizedBox(height: 12), Text(view == 1 ? 'Visão semanal' : 'Visão mensal', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)), const SizedBox(height: 6), const Text('Estrutura pronta para receber os agendamentos.', style: TextStyle(color: Colors.white60))]));
-}
-
-class NewAppointmentPage extends StatefulWidget {
-  const NewAppointmentPage({super.key, this.initialHour});
-  final int? initialHour;
-  @override
-  State<NewAppointmentPage> createState() => _NewAppointmentPageState();
-}
-
-class _NewAppointmentPageState extends State<NewAppointmentPage> {
-  final _client = TextEditingController();
-  final _service = TextEditingController();
-  int _duration = 30;
-
-  @override
-  void dispose() { _client.dispose(); _service.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) => Scaffold(appBar: AppBar(title: const Text('Novo agendamento')), body: SafeArea(child: ListView(padding: const EdgeInsets.all(20), children: [
-    const Text('1. Cliente', style: TextStyle(fontWeight: FontWeight.w700)), const SizedBox(height: 8), TextField(controller: _client, decoration: const InputDecoration(labelText: 'Cliente ou encaixe sem cadastro', prefixIcon: Icon(Icons.person_outline))),
-    const SizedBox(height: 20), const Text('2. Serviço', style: TextStyle(fontWeight: FontWeight.w700)), const SizedBox(height: 8), TextField(controller: _service, decoration: const InputDecoration(labelText: 'Serviço', prefixIcon: Icon(Icons.content_cut_rounded))),
-    const SizedBox(height: 20), const Text('3. Horário', style: TextStyle(fontWeight: FontWeight.w700)), const SizedBox(height: 8), ListTile(contentPadding: EdgeInsets.zero, leading: const Icon(Icons.schedule_rounded), title: Text(widget.initialHour == null ? 'Escolher horário' : '${widget.initialHour.toString().padLeft(2, '0')}:00'), subtitle: Text('Duração prevista: $_duration min')),
-    Wrap(spacing: 8, children: [20, 30, 40, 60].map((minutes) => ChoiceChip(label: Text('$minutes min'), selected: _duration == minutes, onSelected: (_) => setState(() => _duration = minutes))).toList()),
-    const SizedBox(height: 24), Card(child: Padding(padding: const EdgeInsets.all(16), child: Row(children: [const Icon(Icons.auto_awesome_rounded, color: Color(0xFFD6A84B)), const SizedBox(width: 12), Expanded(child: Text('O BCK Agenda poderá sugerir uma duração inteligente após reunir histórico suficiente deste cliente e serviço.', style: Theme.of(context).textTheme.bodyMedium))]))),
-    const SizedBox(height: 24), FilledButton.icon(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.check_rounded), label: const Padding(padding: EdgeInsets.symmetric(vertical: 14), child: Text('Confirmar agendamento'))),
-  ])));
+class NewAppointmentPage extends StatefulWidget{
+  const NewAppointmentPage({super.key,required this.session,required this.apiClient,this.day,this.initialHour});final StoredSession session;final BckApiClient apiClient;final DateTime? day;final int? initialHour;@override State<NewAppointmentPage> createState()=>_NewAppointmentPageState();}
+class _NewAppointmentPageState extends State<NewAppointmentPage>{
+  late Future<List<ClientItem>> _clients;late Future<List<ServiceItem>> _services;ClientItem? _client;ServiceItem? _service;int _duration=30;bool _saving=false;
+  @override void initState(){super.initState();_clients=widget.apiClient.clients(widget.session.groupId);_services=widget.apiClient.services(widget.session.groupId);}
+  DateTime get _start{final d=widget.day??DateTime.now();return DateTime(d.year,d.month,d.day,widget.initialHour??DateTime.now().hour);}
+  @override Widget build(BuildContext context)=>Scaffold(appBar:AppBar(title:const Text('Novo agendamento')),body:SafeArea(child:ListView(padding:const EdgeInsets.all(20),children:[const Text('1. Cliente',style:TextStyle(fontWeight:FontWeight.w700)),const SizedBox(height:8),FutureBuilder<List<ClientItem>>(future:_clients,builder:(context,s)=>DropdownButtonFormField<ClientItem>(value:_client,decoration:const InputDecoration(prefixIcon:Icon(Icons.person_outline),labelText:'Cliente'),items:(s.data??[]).map((c)=>DropdownMenuItem(value:c,child:Text('${c.name} • ${c.phone}'))).toList(),onChanged:(v)=>setState(()=>_client=v))),const SizedBox(height:20),const Text('2. Serviço',style:TextStyle(fontWeight:FontWeight.w700)),const SizedBox(height:8),FutureBuilder<List<ServiceItem>>(future:_services,builder:(context,s)=>DropdownButtonFormField<ServiceItem>(value:_service,decoration:const InputDecoration(prefixIcon:Icon(Icons.content_cut_rounded),labelText:'Serviço'),items:(s.data??[]).map((x)=>DropdownMenuItem(value:x,child:Text('${x.name} • ${x.durationMinutes} min'))).toList(),onChanged:(v)=>setState((){_service=v;if(v!=null)_duration=v.durationMinutes;}))),const SizedBox(height:20),const Text('3. Horário',style:TextStyle(fontWeight:FontWeight.w700)),ListTile(contentPadding:EdgeInsets.zero,leading:const Icon(Icons.schedule_rounded),title:Text('${_start.hour.toString().padLeft(2,'0')}:00'),subtitle:Text('Duração prevista: $_duration min')),Wrap(spacing:8,children:[20,30,40,60].map((m)=>ChoiceChip(label:Text('$m min'),selected:_duration==m,onSelected:(_)=>setState(()=>_duration=m))).toList()),const SizedBox(height:24),FilledButton.icon(onPressed:_saving?null:_save,icon:_saving?const SizedBox(width:18,height:18,child:CircularProgressIndicator(strokeWidth:2)):const Icon(Icons.check_rounded),label:const Padding(padding:EdgeInsets.symmetric(vertical:14),child:Text('Confirmar agendamento')))])));
+  Future<void> _save() async {if(_client==null||_service==null){ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Selecione cliente e serviço.')));return;}setState(()=>_saving=true);try{final end=_start.add(Duration(minutes:_duration));final available=await widget.apiClient.availability(groupId:widget.session.groupId,professionalUserId:widget.session.userId,startsAt:_start,endsAt:end);if(!available){if(mounted)ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content:Text('Este horário possui conflito. Escolha outro horário.')));return;}await widget.apiClient.createAppointment(groupId:widget.session.groupId,professionalUserId:widget.session.userId,createdByUserId:widget.session.userId,clientId:_client!.id,serviceId:_service!.id,startsAt:_start,durationMinutes:_duration);if(mounted)Navigator.pop(context,true);}catch(e){if(mounted)ScaffoldMessenger.of(context).showSnackBar(SnackBar(content:Text('Não foi possível agendar: $e')));}finally{if(mounted)setState(()=>_saving=false);}}
 }
