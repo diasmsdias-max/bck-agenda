@@ -24,6 +24,30 @@ class _ConnectCompanyPageState extends State<ConnectCompanyPage> {
   final _deviceIdentityStore = DeviceIdentityStore();
   final _pendingPairingStore = PendingPairingStore();
   bool _busy = false;
+  bool _loadingPairingState = true;
+  PendingPairing? _pendingPairing;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPairingState();
+  }
+
+  Future<void> _loadPairingState() async {
+    final deviceId = await _deviceIdentityStore.getOrCreateDeviceId();
+    final pending = await _pendingPairingStore.read();
+    if (!mounted) return;
+    setState(() {
+      _pendingPairing = pending?.deviceId == deviceId ? pending : null;
+      _loadingPairingState = false;
+    });
+  }
+
+  Future<void> _useAnotherCode() async {
+    await _pendingPairingStore.clear();
+    if (!mounted) return;
+    setState(() => _pendingPairing = null);
+  }
 
   @override
   void dispose() {
@@ -99,7 +123,7 @@ class _ConnectCompanyPageState extends State<ConnectCompanyPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
-              'Não foi possível concluir a conexão. Se o aparelho já foi autorizado, corrija usuário/senha ou a conexão e tente novamente.',
+              'Não foi possível concluir a conexão. Verifique usuário, senha e conexão e tente novamente.',
             ),
           ),
         );
@@ -110,26 +134,34 @@ class _ConnectCompanyPageState extends State<ConnectCompanyPage> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Conectar à empresa')),
-        body: SafeArea(
-          child: Form(
-            key: _formKey,
-            child: ListView(
-              padding: const EdgeInsets.all(24),
-              children: [
-                Text(
-                  'Empresa existente',
-                  style: Theme.of(context)
-                      .textTheme
-                      .headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.w700),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'Peça ao Administrador da empresa um código de conexão. O código é temporário e só pode ser usado uma vez.',
-                ),
-                const SizedBox(height: 24),
+  Widget build(BuildContext context) {
+    if (_loadingPairingState) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final recovering = _pendingPairing != null;
+    return Scaffold(
+      appBar: AppBar(title: const Text('Conectar à empresa')),
+      body: SafeArea(
+        child: Form(
+          key: _formKey,
+          child: ListView(
+            padding: const EdgeInsets.all(24),
+            children: [
+              Text(
+                recovering ? 'Concluir conexão' : 'Empresa existente',
+                style: Theme.of(context)
+                    .textTheme
+                    .headlineSmall
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                recovering
+                    ? 'Este aparelho já foi autorizado. Entre com seu usuário e senha para concluir a conexão.'
+                    : 'Peça ao Administrador da empresa um código de conexão. O código é temporário e só pode ser usado uma vez.',
+              ),
+              const SizedBox(height: 24),
+              if (!recovering) ...[
                 TextFormField(
                   controller: _code,
                   textCapitalization: TextCapitalization.characters,
@@ -149,35 +181,50 @@ class _ConnectCompanyPageState extends State<ConnectCompanyPage> {
                   validator: _required,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _user,
-                  decoration: const InputDecoration(
-                    labelText: 'Seu usuário',
-                    prefixIcon: Icon(Icons.person),
-                  ),
-                  validator: _required,
+              ],
+              TextFormField(
+                controller: _user,
+                decoration: const InputDecoration(
+                  labelText: 'Seu usuário',
+                  prefixIcon: Icon(Icons.person),
                 ),
+                validator: _required,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _password,
+                obscureText: true,
+                decoration: const InputDecoration(
+                  labelText: 'Sua senha',
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                validator: _required,
+              ),
+              const SizedBox(height: 28),
+              FilledButton(
+                onPressed: _busy ? null : _submit,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    _busy
+                        ? 'Conectando...'
+                        : recovering
+                            ? 'Concluir conexão'
+                            : 'Conectar a esta empresa',
+                  ),
+                ),
+              ),
+              if (recovering) ...[
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _password,
-                  obscureText: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Sua senha',
-                    prefixIcon: Icon(Icons.lock),
-                  ),
-                  validator: _required,
-                ),
-                const SizedBox(height: 28),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Text(_busy ? 'Conectando...' : 'Conectar a esta empresa'),
-                  ),
+                TextButton(
+                  onPressed: _busy ? null : _useAnotherCode,
+                  child: const Text('Usar outro código'),
                 ),
               ],
-            ),
+            ],
           ),
         ),
-      );
+      ),
+    );
+  }
 }
