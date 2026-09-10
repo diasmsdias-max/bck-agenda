@@ -57,11 +57,21 @@ public sealed class AgendaService(IConfiguration configuration)
     {
         if (request.DurationMinutes <= 0 || (request.ClientId is null && string.IsNullOrWhiteSpace(request.WalkInName))) throw new ArgumentException("Cliente e duração são obrigatórios.");
         var endsAt = request.StartsAt.AddMinutes(request.DurationMinutes);
-        var conflicts = await FindConflictsAsync(request.GroupId, request.ProfessionalUserId, request.StartsAt, endsAt, ct);
-        if (conflicts.Count > 0 && !request.ForceConflict) throw new InvalidOperationException("APPOINTMENT_CONFLICT");
 
         await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); await using var transaction = await connection.BeginTransactionAsync(ct);
+        // Serialize appointment creation for one professional inside the transaction. This closes
+        // the race where two concurrent requests could both pass an availability check and insert.
+        await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", connection, transaction))
+        {
+            lockCommand.Parameters.AddWithValue($"{request.GroupId:N}:{request.ProfessionalUserId:N}");
+            await lockCommand.ExecuteNonQueryAsync(ct);
+        }
+        var conflicts = await FindAppointmentsAsync(connection, transaction, request.GroupId, request.ProfessionalUserId, request.StartsAt, endsAt, true, ct);
+        if (conflicts.Count > 0 && !request.ForceConflict) throw new InvalidOperationException("APPOINTMENT_CONFLICT");
+
         decimal price; int serviceDuration; string clientName;
+        await using (var professionalCommand = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true AND serves_clients=true", connection, transaction)) { professionalCommand.Parameters.AddWithValue(request.ProfessionalUserId); professionalCommand.Parameters.AddWithValue(request.GroupId); if (await professionalCommand.ExecuteScalarAsync(ct) is null) throw new ArgumentException("Profissional não encontrado ou não habilitado para atender."); }
+        await using (var creatorCommand = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction)) { creatorCommand.Parameters.AddWithValue(request.CreatedByUserId); creatorCommand.Parameters.AddWithValue(request.GroupId); if (await creatorCommand.ExecuteScalarAsync(ct) is null) throw new ArgumentException("Usuário responsável não encontrado."); }
         await using (var serviceCommand = new NpgsqlCommand("SELECT standard_price,standard_duration_minutes FROM service WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction)) { serviceCommand.Parameters.AddWithValue(request.ServiceId); serviceCommand.Parameters.AddWithValue(request.GroupId); await using var reader = await serviceCommand.ExecuteReaderAsync(ct); if (!await reader.ReadAsync(ct)) throw new ArgumentException("Serviço não encontrado."); price=reader.GetDecimal(0); serviceDuration=reader.GetInt32(1); }
         if (request.ClientId is not null) { await using var clientCommand = new NpgsqlCommand("SELECT name FROM client WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction); clientCommand.Parameters.AddWithValue(request.ClientId.Value); clientCommand.Parameters.AddWithValue(request.GroupId); clientName=(string?)await clientCommand.ExecuteScalarAsync(ct) ?? throw new ArgumentException("Cliente não encontrado."); } else clientName=request.WalkInName!.Trim();
         Guid appointmentId;
@@ -78,9 +88,14 @@ public sealed class AgendaService(IConfiguration configuration)
     private async Task<List<AppointmentSummary>> FindAppointmentsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
     {
         await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct);
+        return await FindAppointmentsAsync(connection, null, groupId, professionalUserId, from, to, overlap, ct);
+    }
+
+    private static async Task<List<AppointmentSummary>> FindAppointmentsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
+    {
         var timeClause = overlap ? "a.starts_at < $4 AND a.ends_at > $3" : "a.starts_at >= $3 AND a.starts_at < $4";
         var sql = $"SELECT a.id,a.professional_user_id,a.client_id,COALESCE(c.name,a.walk_in_name,'Cliente'),a.starts_at,a.ends_at,a.status,a.is_fit_in FROM appointment a LEFT JOIN client c ON c.id=a.client_id WHERE a.group_id=$1 AND a.professional_user_id=$2 AND a.status NOT IN ('CANCELLED','RESCHEDULED') AND {timeClause} ORDER BY a.starts_at";
-        await using var command = new NpgsqlCommand(sql, connection); command.Parameters.AddWithValue(groupId); command.Parameters.AddWithValue(professionalUserId); command.Parameters.AddWithValue(from); command.Parameters.AddWithValue(to);
+        await using var command = new NpgsqlCommand(sql, connection, transaction); command.Parameters.AddWithValue(groupId); command.Parameters.AddWithValue(professionalUserId); command.Parameters.AddWithValue(from); command.Parameters.AddWithValue(to);
         await using var reader = await command.ExecuteReaderAsync(ct); var result = new List<AppointmentSummary>(); while(await reader.ReadAsync(ct)) result.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.IsDBNull(2)?null:reader.GetGuid(2),reader.GetString(3),reader.GetFieldValue<DateTimeOffset>(4),reader.GetFieldValue<DateTimeOffset>(5),reader.GetString(6),reader.GetBoolean(7))); return result;
     }
 }
