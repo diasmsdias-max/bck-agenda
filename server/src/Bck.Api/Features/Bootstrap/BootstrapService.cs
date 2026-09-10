@@ -1,5 +1,4 @@
-using System.Security.Cryptography;
-using Bck.Api.Infrastructure.Database;
+using Bck.Api.Features.Auth;
 using Npgsql;
 
 namespace Bck.Api.Features.Bootstrap;
@@ -109,19 +108,5 @@ public sealed class BootstrapService(IConfiguration configuration)
         if (string.IsNullOrWhiteSpace(request.Platform)) throw new ArgumentException("Platform is required.");
         if (request.DeviceMode.Trim().ToUpperInvariant() is not ("PERSONAL" or "SHARED"))
             throw new ArgumentException("DeviceMode must be PERSONAL or SHARED.");
-    }
-}
-
-internal static class PasswordHasher
-{
-    private const int Iterations = 210_000;
-    private const int SaltSize = 16;
-    private const int KeySize = 32;
-
-    public static string Hash(string password)
-    {
-        var salt = RandomNumberGenerator.GetBytes(SaltSize);
-        var key = Rfc2898DeriveBytes.Pbkdf2(password, salt, Iterations, HashAlgorithmName.SHA256, KeySize);
-        return $"PBKDF2-SHA256${Iterations}${Convert.ToBase64String(salt)}${Convert.ToBase64String(key)}";
     }
 }
