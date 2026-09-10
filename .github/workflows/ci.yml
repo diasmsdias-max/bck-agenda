@@ -20,7 +20,7 @@ jobs:
       - run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
 
   auth-integration:
-    name: Auth, RBAC and revocation integration
+    name: Auth, RBAC, tenant isolation and pairing
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -76,6 +76,32 @@ jobs:
           ROTATED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$REFRESH" '{refreshToken:$t}')"); NEW_REFRESH=$(echo "$ROTATED"|jq -r .refreshToken); test "$NEW_REFRESH" != "$REFRESH"
           curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/logout -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')" >/dev/null
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')")" = 401
+      - name: Tenant isolation and device pairing
+        shell: bash
+        run: |
+          set -euo pipefail
+          boot(){ curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "$1"; }
+          DEV_A=$(cat /proc/sys/kernel/random/uuid); DEV_B=$(cat /proc/sys/kernel/random/uuid)
+          A=$(boot "{\"companyName\":\"Empresa A\",\"ownerName\":\"Admin A\",\"ownerUsername\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DEV_A\",\"deviceName\":\"A Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          B=$(boot "{\"companyName\":\"Empresa B\",\"ownerName\":\"Admin B\",\"ownerUsername\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"B Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          GA=$(echo "$A"|jq -r .groupId); UA=$(echo "$A"|jq -r .userId); GB=$(echo "$B"|jq -r .groupId); UB=$(echo "$B"|jq -r .userId); test "$GA" != "$GB"
+          LA=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DEV_A\"}"); TA=$(echo "$LA"|jq -r .accessToken)
+          LB=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\"}"); TB=$(echo "$LB"|jq -r .accessToken)
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Cliente Exclusivo A","phone":"27999990001"}' >/dev/null
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Cliente Exclusivo B","phone":"27999990002"}' >/dev/null
+          CA=$(curl -fsS http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA"); CB=$(curl -fsS http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB")
+          test "$(echo "$CA"|jq '[.[]|select(.name=="Cliente Exclusivo A")]|length')" = 1; test "$(echo "$CA"|jq '[.[]|select(.name=="Cliente Exclusivo B")]|length')" = 0
+          test "$(echo "$CB"|jq '[.[]|select(.name=="Cliente Exclusivo B")]|length')" = 1; test "$(echo "$CB"|jq '[.[]|select(.name=="Cliente Exclusivo A")]|length')" = 0
+          SA=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Serviço A","standardPrice":10,"standardDurationMinutes":30}'); SB=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Serviço B","standardPrice":20,"standardDurationMinutes":30}')
+          test "$(curl -fsS http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TA"|jq '[.[]|select(.name=="Serviço B")]|length')" = 0
+          test "$(curl -fsS http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TB"|jq '[.[]|select(.name=="Serviço A")]|length')" = 0
+          PAIR=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}'); CODE=$(echo "$PAIR"|jq -r .pairingCode)
+          NEW_DEV=$(cat /proc/sys/kernel/random/uuid)
+          WRONG=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$NEW_DEV\",\"deviceName\":\"Intruso B\",\"platform\":\"ANDROID\",\"username\":\"adminb\",\"password\":\"SenhaB123!\"}"); test "$WRONG" = 400
+          PAIRED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$NEW_DEV\",\"deviceName\":\"A Secundário\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}"); test "$(echo "$PAIRED"|jq -r .groupId)" = "$GA"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"deviceName\":\"Reuso\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")" = 400
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from device where id='$NEW_DEV'")" = "$GA"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')" = 200
       - name: Show API log on failure
         if: failure()
         run: cat /tmp/bck-api.log || true
