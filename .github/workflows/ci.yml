@@ -9,63 +9,131 @@ jobs:
   api:
     name: API .NET
     runs-on: ubuntu-latest
+    env:
+      BCK_JWT_SIGNING_KEY: bck-agenda-ci-signing-key-at-least-32-bytes-long
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '10.0.x'
-      - name: Restore
-        run: dotnet restore server/src/Bck.Api/Bck.Api.csproj
-      - name: Build
-        run: dotnet build server/src/Bck.Api/Bck.Api.csproj --configuration Release --no-restore
-      - name: Test
-        run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
+        with: { dotnet-version: '10.0.x' }
+      - run: dotnet restore server/src/Bck.Api/Bck.Api.csproj
+      - run: dotnet build server/src/Bck.Api/Bck.Api.csproj --configuration Release --no-restore
+      - run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
 
-  database:
-    name: PostgreSQL migration
+  auth-integration:
+    name: Auth, RBAC, tenant isolation and pairing
     runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:17
-        env:
-          POSTGRES_DB: bck_agenda
-          POSTGRES_USER: bck
-          POSTGRES_PASSWORD: bck_ci
-        ports:
-          - 5432:5432
+        env: { POSTGRES_DB: bck_agenda, POSTGRES_USER: bck, POSTGRES_PASSWORD: bck_ci }
+        ports: [5432:5432]
         options: >-
-          --health-cmd "pg_isready -U bck -d bck_agenda"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 10
+          --health-cmd "pg_isready -U bck -d bck_agenda" --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       PGPASSWORD: bck_ci
+      BCK_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=bck_agenda;Username=bck;Password=bck_ci
+      ASPNETCORE_URLS: http://127.0.0.1:5080
+      BCK_JWT_SIGNING_KEY: bck-agenda-ci-signing-key-at-least-32-bytes-long
     steps:
       - uses: actions/checkout@v4
-      - name: Apply foundation migration
-        run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/migrations/0001_foundation.sql
-      - name: Validate foundation schema
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Apply migrations
+        run: for migration in database/migrations/*.sql; do psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Start API
         run: |
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('bck_group','bck_user','device','audit_log','sync_event')")" = "5"
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.columns where table_schema='public' and table_name='device' and column_name in ('device_mode','is_principal')")" = "2"
+          dotnet run --project server/src/Bck.Api/Bck.Api.csproj --no-launch-profile > /tmp/bck-api.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:5080/api/v1/health >/dev/null && exit 0; sleep 1; done
+          cat /tmp/bck-api.log; exit 1
+      - name: Bootstrap, JWT, RBAC, fit-in and immediate revocation
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(cat /proc/sys/kernel/random/uuid)
+          BOOTSTRAP=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "{\"companyName\":\"BCK CI\",\"ownerName\":\"Owner CI\",\"ownerUsername\":\"owner\",\"password\":\"SenhaForte123!\",\"deviceId\":\"$DEVICE_ID\",\"deviceName\":\"CI Device\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          GROUP_ID=$(echo "$BOOTSTRAP"|jq -r .groupId); OWNER_ID=$(echo "$BOOTSTRAP"|jq -r .userId)
+          LOGIN=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GROUP_ID\",\"username\":\"owner\",\"password\":\"SenhaForte123!\",\"deviceId\":\"$DEVICE_ID\"}")
+          ACCESS=$(echo "$LOGIN"|jq -r .accessToken); REFRESH=$(echo "$LOGIN"|jq -r .refreshToken)
+          test "$(awk -F. '{print NF}' <<< "$ACCESS")" = 3
+          ME=$(curl -fsS http://127.0.0.1:5080/api/v1/auth/me -H "Authorization: Bearer $ACCESS"); test "$(echo "$ME"|jq -r .groupId)" = "$GROUP_ID"
+          USER_ID=$(cat /proc/sys/kernel/random/uuid); USER_DEVICE=$(cat /proc/sys/kernel/random/uuid); HASH=$(psql -h localhost -U bck -d bck_agenda -tAc "select password_hash from bck_user where id='$OWNER_ID'")
+          psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 <<SQL
+          insert into bck_user(id,group_id,name,profile,is_owner,serves_clients,password_hash,username) values('$USER_ID','$GROUP_ID','User CI','USER',false,true,'$HASH','userci');
+          insert into device(id,group_id,name,platform,device_mode,status) values('$USER_DEVICE','$GROUP_ID','User Device','ANDROID','PERSONAL','ACTIVE');
+          insert into device_user(device_id,user_id) values('$USER_DEVICE','$USER_ID');
+          SQL
+          USER_LOGIN=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GROUP_ID\",\"username\":\"userci\",\"password\":\"SenhaForte123!\",\"deviceId\":\"$USER_DEVICE\"}"); USER_ACCESS=$(echo "$USER_LOGIN"|jq -r .accessToken); USER_REFRESH=$(echo "$USER_LOGIN"|jq -r .refreshToken)
+          test "$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:5080/api/v1/appointments?professionalUserId=$OWNER_ID&from=2026-09-10T08:00:00Z&to=2026-09-10T18:00:00Z" -H "Authorization: Bearer $USER_ACCESS")" = 403
+          SERVICE=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $ACCESS" -H 'Content-Type: application/json' -d '{"name":"Corte","standardPrice":50,"standardDurationMinutes":30}'); SERVICE_ID=$(echo "$SERVICE"|jq -r .id)
+          APPT='{"professionalUserId":"'$USER_ID'","walkInName":"Cliente CI","startsAt":"2026-09-10T10:00:00Z","durationMinutes":30,"serviceId":"'$SERVICE_ID'"}'
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$APPT" >/dev/null
+          FORCE=$(echo "$APPT"|jq '.forceConflict=true'); test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$FORCE")" = 403
+          psql -h localhost -U bck -d bck_agenda -c "insert into user_permission(user_id,permission_id,granted) select '$USER_ID',id,true from permission where code='ALLOW_FIT_IN' on conflict(user_id,permission_id) do update set granted=true"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$FORCE")" = 201
+          psql -h localhost -U bck -d bck_agenda -c "update device set status='REVOKED',revoked_at=now(),security_version=security_version+1 where id='$USER_DEVICE'"
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/auth/me -H "Authorization: Bearer $USER_ACCESS")" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$USER_REFRESH" '{refreshToken:$t}')")" = 401
+          ROTATED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$REFRESH" '{refreshToken:$t}')"); NEW_REFRESH=$(echo "$ROTATED"|jq -r .refreshToken); test "$NEW_REFRESH" != "$REFRESH"
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/logout -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')" >/dev/null
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')")" = 401
+      - name: Tenant isolation and device pairing
+        shell: bash
+        run: |
+          set -euo pipefail
+          boot(){ curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "$1"; }
+          DEV_A=$(cat /proc/sys/kernel/random/uuid); DEV_B=$(cat /proc/sys/kernel/random/uuid)
+          A=$(boot "{\"companyName\":\"Empresa A\",\"ownerName\":\"Admin A\",\"ownerUsername\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DEV_A\",\"deviceName\":\"A Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          B=$(boot "{\"companyName\":\"Empresa B\",\"ownerName\":\"Admin B\",\"ownerUsername\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\",\"deviceName\":\"B Principal\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          GA=$(echo "$A"|jq -r .groupId); UA=$(echo "$A"|jq -r .userId); GB=$(echo "$B"|jq -r .groupId); UB=$(echo "$B"|jq -r .userId); test "$GA" != "$GB"
+          LA=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DEV_A\"}"); TA=$(echo "$LA"|jq -r .accessToken)
+          LB=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DEV_B\"}"); TB=$(echo "$LB"|jq -r .accessToken)
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Cliente Exclusivo A","phone":"27999990001"}' >/dev/null
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Cliente Exclusivo B","phone":"27999990002"}' >/dev/null
+          CA=$(curl -fsS http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA"); CB=$(curl -fsS http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB")
+          test "$(echo "$CA"|jq '[.[]|select(.name=="Cliente Exclusivo A")]|length')" = 1; test "$(echo "$CA"|jq '[.[]|select(.name=="Cliente Exclusivo B")]|length')" = 0
+          test "$(echo "$CB"|jq '[.[]|select(.name=="Cliente Exclusivo B")]|length')" = 1; test "$(echo "$CB"|jq '[.[]|select(.name=="Cliente Exclusivo A")]|length')" = 0
+          SA=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Serviço A","standardPrice":10,"standardDurationMinutes":30}'); SB=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Serviço B","standardPrice":20,"standardDurationMinutes":30}')
+          test "$(curl -fsS http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TA"|jq '[.[]|select(.name=="Serviço B")]|length')" = 0
+          test "$(curl -fsS http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TB"|jq '[.[]|select(.name=="Serviço A")]|length')" = 0
+          PAIR=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}'); CODE=$(echo "$PAIR"|jq -r .pairingCode)
+          NEW_DEV=$(cat /proc/sys/kernel/random/uuid)
+          WRONG=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$NEW_DEV\",\"deviceName\":\"Intruso B\",\"platform\":\"ANDROID\",\"username\":\"adminb\",\"password\":\"SenhaB123!\"}"); test "$WRONG" = 400
+          PAIRED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$NEW_DEV\",\"deviceName\":\"A Secundário\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}"); test "$(echo "$PAIRED"|jq -r .groupId)" = "$GA"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair/consume -H 'Content-Type: application/json' -d "{\"pairingCode\":\"$CODE\",\"deviceId\":\"$(cat /proc/sys/kernel/random/uuid)\",\"deviceName\":\"Reuso\",\"platform\":\"ANDROID\",\"username\":\"admina\",\"password\":\"SenhaA123!\"}")" = 400
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select group_id from device where id='$NEW_DEV'")" = "$GA"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/devices/pair -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"deviceMode":"PERSONAL"}')" = 200
+      - name: Show API log on failure
+        if: failure()
+        run: cat /tmp/bck-api.log || true
+
+  database:
+    name: PostgreSQL migrations
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_DB: bck_agenda, POSTGRES_USER: bck, POSTGRES_PASSWORD: bck_ci }
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U bck -d bck_agenda" --health-interval 5s --health-timeout 5s --health-retries 10
+    env: { PGPASSWORD: bck_ci }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply all migrations
+        run: for migration in database/migrations/*.sql; do psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Validate schemas
+        run: |
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('bck_group','bck_user','device','audit_log','sync_event','refresh_token','device_pairing_token')")" = "7"
 
   flutter:
     name: Flutter analyze and test
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/bck_app
+    defaults: { run: { working-directory: apps/bck_app } }
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
-        with:
-          channel: stable
-          cache: true
-      - name: Dependencies
-        run: flutter pub get
-      - name: Generate Drift
-        run: dart run build_runner build --delete-conflicting-outputs
-      - name: Analyze
-        run: flutter analyze
-      - name: Test
-        run: flutter test
+        with: { channel: stable, cache: true }
+      - run: flutter pub get
+      - run: dart run build_runner build --delete-conflicting-outputs
+      - run: flutter analyze
+      - run: flutter test
