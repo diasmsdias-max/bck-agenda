@@ -1,5 +1,5 @@
-import 'package:bck_app/src/core/device/device_identity_store.dart';
-import 'package:bck_app/src/core/device/pending_pairing_store.dart';
+import 'package:bck_agenda/src/core/device/device_identity_store.dart';
+import 'package:bck_agenda/src/core/device/pending_pairing_store.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:uuid/uuid.dart';
