@@ -21,6 +21,71 @@ jobs:
       - name: Test
         run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
 
+  auth-integration:
+    name: Auth integration with PostgreSQL
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bck_agenda
+          POSTGRES_USER: bck
+          POSTGRES_PASSWORD: bck_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bck -d bck_agenda"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: bck_ci
+      BCK_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=bck_agenda;Username=bck;Password=bck_ci
+      ASPNETCORE_URLS: http://127.0.0.1:5080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Apply migrations
+        run: |
+          for migration in database/migrations/*.sql; do
+            psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"
+          done
+      - name: Start API
+        run: |
+          dotnet run --project server/src/Bck.Api/Bck.Api.csproj --no-launch-profile > /tmp/bck-api.log 2>&1 &
+          echo $! > /tmp/bck-api.pid
+          for i in {1..30}; do
+            curl -fsS http://127.0.0.1:5080/api/v1/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat /tmp/bck-api.log
+          exit 1
+      - name: Bootstrap, login, refresh and logout
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEVICE_ID=$(cat /proc/sys/kernel/random/uuid)
+          BOOTSTRAP=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "{\"companyName\":\"BCK CI\",\"taxId\":null,\"companyPhone\":\"27999999999\",\"ownerName\":\"Owner CI\",\"ownerUsername\":\"owner\",\"password\":\"SenhaForte123!\",\"deviceId\":\"$DEVICE_ID\",\"deviceName\":\"CI Device\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          GROUP_ID=$(echo "$BOOTSTRAP" | jq -r '.groupId')
+          test "$GROUP_ID" != "null"
+          LOGIN=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GROUP_ID\",\"username\":\"owner\",\"password\":\"SenhaForte123!\",\"deviceId\":\"$DEVICE_ID\"}")
+          REFRESH=$(echo "$LOGIN" | jq -r '.refreshToken')
+          test "$REFRESH" != "null"
+          ROTATED=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$REFRESH" '{refreshToken:$t}')")
+          NEW_REFRESH=$(echo "$ROTATED" | jq -r '.refreshToken')
+          test "$NEW_REFRESH" != "$REFRESH"
+          OLD_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$REFRESH" '{refreshToken:$t}')")
+          test "$OLD_STATUS" = "401"
+          curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/logout -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')" >/dev/null
+          LOGGED_OUT_STATUS=$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$NEW_REFRESH" '{refreshToken:$t}')")
+          test "$LOGGED_OUT_STATUS" = "401"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from refresh_token where revoked_at is not null")" -ge "2"
+      - name: Show API log on failure
+        if: failure()
+        run: cat /tmp/bck-api.log || true
+
   database:
     name: PostgreSQL migrations
     runs-on: ubuntu-latest
