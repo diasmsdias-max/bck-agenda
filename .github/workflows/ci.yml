@@ -1,0 +1,71 @@
+name: BCK Agenda CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  api:
+    name: API .NET
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Restore
+        run: dotnet restore server/src/Bck.Api/Bck.Api.csproj
+      - name: Build
+        run: dotnet build server/src/Bck.Api/Bck.Api.csproj --configuration Release --no-restore
+      - name: Test
+        run: dotnet test server/tests/Bck.Api.Tests/Bck.Api.Tests.csproj --configuration Release
+
+  database:
+    name: PostgreSQL migration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bck_agenda
+          POSTGRES_USER: bck
+          POSTGRES_PASSWORD: bck_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U bck -d bck_agenda"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGPASSWORD: bck_ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply foundation migration
+        run: psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f database/migrations/0001_foundation.sql
+      - name: Validate foundation schema
+        run: |
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.tables where table_schema='public' and table_name in ('bck_group','bck_user','device','audit_log','sync_event')")" = "5"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from information_schema.columns where table_schema='public' and table_name='device' and column_name in ('device_mode','is_principal')")" = "2"
+
+  flutter:
+    name: Flutter analyze and test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/bck_app
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Dependencies
+        run: flutter pub get
+      - name: Generate Drift
+        run: dart run build_runner build --delete-conflicting-outputs
+      - name: Analyze
+        run: flutter analyze
+      - name: Test
+        run: flutter test
