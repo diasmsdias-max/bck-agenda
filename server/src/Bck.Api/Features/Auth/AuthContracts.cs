@@ -19,3 +19,13 @@ public sealed record LoginResponse(
     string RefreshToken,
     DateTimeOffset RefreshTokenExpiresAt,
     DateTimeOffset OfflineLeaseExpiresAt);
+
+public sealed record RefreshRequest(string RefreshToken);
+public sealed record LogoutRequest(string RefreshToken);
+
+public sealed record RefreshResponse(
+    string AccessToken,
+    DateTimeOffset AccessTokenExpiresAt,
+    string RefreshToken,
+    DateTimeOffset RefreshTokenExpiresAt,
+    DateTimeOffset OfflineLeaseExpiresAt);
