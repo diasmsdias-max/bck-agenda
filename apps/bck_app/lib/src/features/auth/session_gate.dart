@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/bck_api_client.dart';
 import '../../core/auth/session_store.dart';
+import '../home/home_shell.dart';
 import '../onboarding/welcome_page.dart';
 
 class SessionGate extends StatefulWidget {
@@ -22,7 +23,7 @@ class _SessionGateState extends State<SessionGate> {
 
     final now = DateTime.now().toUtc();
     if (now.isBefore(session.accessTokenExpiresAt.toUtc())) {
-      return _SessionReadyPage(session: session, mode: 'Online');
+      return HomeShell(session: session, offline: false);
     }
 
     if (now.isBefore(session.refreshTokenExpiresAt.toUtc())) {
@@ -36,13 +37,13 @@ class _SessionGateState extends State<SessionGate> {
           offlineLeaseExpiresAt: refreshed.offlineLeaseExpiresAt,
         );
         final updated = await _store.read();
-        if (updated != null) return _SessionReadyPage(session: updated, mode: 'Online');
+        if (updated != null) return HomeShell(session: updated, offline: false);
       } catch (_) {
-        if (session.canOperateOffline) return _SessionReadyPage(session: session, mode: 'Offline');
+        if (session.canOperateOffline) return HomeShell(session: session, offline: true);
       }
     }
 
-    if (session.canOperateOffline) return _SessionReadyPage(session: session, mode: 'Offline');
+    if (session.canOperateOffline) return HomeShell(session: session, offline: true);
     await _store.clear();
     return WelcomePage(apiClient: widget.apiClient);
   }
@@ -54,37 +55,5 @@ class _SessionGateState extends State<SessionGate> {
           if (snapshot.hasData) return snapshot.data!;
           return const Scaffold(body: Center(child: CircularProgressIndicator()));
         },
-      );
-}
-
-class _SessionReadyPage extends StatelessWidget {
-  const _SessionReadyPage({required this.session, required this.mode});
-  final StoredSession session;
-  final String mode;
-
-  @override
-  Widget build(BuildContext context) => Scaffold(
-        body: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Spacer(),
-                const Icon(Icons.calendar_month_rounded, size: 64, color: Color(0xFFD6A84B)),
-                const SizedBox(height: 20),
-                Text('Olá, ${session.name}', textAlign: TextAlign.center, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
-                const SizedBox(height: 8),
-                Text('Sessão restaurada • $mode', textAlign: TextAlign.center, style: const TextStyle(color: Colors.white70)),
-                if (mode == 'Offline') ...[
-                  const SizedBox(height: 16),
-                  const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Sem conexão. O BCK Agenda continuará disponível dentro da autorização offline vigente.', textAlign: TextAlign.center))),
-                ],
-                const Spacer(),
-                const Text('A próxima etapa conectará esta sessão à tela Início.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white54)),
-              ],
-            ),
-          ),
-        ),
       );
 }
