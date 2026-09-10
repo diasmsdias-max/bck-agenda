@@ -29,7 +29,7 @@ jobs:
           dotnet run --project server/src/Bck.Api/Bck.Api.csproj --no-launch-profile >/tmp/bck-api.log 2>&1 &
           for i in {1..30}; do curl -fsS http://127.0.0.1:5080/api/v1/health >/dev/null && exit 0; sleep 1; done
           cat /tmp/bck-api.log; exit 1
-      - name: Cross-tenant client isolation
+      - name: Client HTTP security and concurrency
         shell: bash
         run: |
           set -euo pipefail
@@ -51,22 +51,29 @@ jobs:
           ID_A=$(echo "$CLIENT_A" | jq -r .id); VER_A=$(echo "$CLIENT_A" | jq -r .version)
           test -n "$ID_A"; test "$ID_A" != null
 
-          # Mesmo telefone normalizado em outro tenant deve ser permitido.
+          # Mesmo telefone em outro tenant é válido; no mesmo tenant deve retornar 409 controlado.
           curl -fsS -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"name":"Cliente B","phone":"27 99999-0101"}' >/dev/null
+          DUP_BODY=$(mktemp)
+          DUP_CODE=$(curl -s -o "$DUP_BODY" -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/clients -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Duplicado A","phone":"27.99999.0101"}')
+          test "$DUP_CODE" = 409
+          test "$(jq -r .code "$DUP_BODY")" = CLIENT_PHONE_DUPLICATE
+
+          # Atualização válida incrementa versão; versão antiga deve receber 409.
+          UPDATE=$(jq -nc --argjson v "$VER_A" '{name:"Cliente A Atualizado",phone:"27999990101",whatsAppEnabled:true,notes:"versão nova",birthDate:"1990-05-20",version:$v}')
+          NEW=$(curl -fsS -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d "$UPDATE")
+          test "$(echo "$NEW" | jq -r .version)" -gt "$VER_A"
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d "$UPDATE")" = 409
 
           # Tenant B não pode ler, alterar, excluir, consultar histórico ou reativar cliente A.
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB")" = 404
-          UPDATE=$(jq -nc --argjson v "$VER_A" '{name:"Intruso",phone:"27999990199",whatsAppEnabled:true,notes:null,birthDate:null,version:$v}')
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d "$UPDATE")" = 404
+          INTRUDER=$(jq -nc --argjson v "$VER_A" '{name:"Intruso",phone:"27999990199",whatsAppEnabled:true,notes:null,birthDate:null,version:$v}')
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PUT http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d "$INTRUDER")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' -X DELETE http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TB")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/clients/$ID_A/history -H "Authorization: Bearer $TB")" = 404
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/clients/$ID_A/reactivate -H "Authorization: Bearer $TB")" = 404
-
-          # Busca de duplicidade é limitada ao tenant autenticado.
           DUP_B=$(curl -fsS 'http://127.0.0.1:5080/api/v1/clients/duplicates?phone=27999990101' -H "Authorization: Bearer $TB")
           test "$(echo "$DUP_B" | jq '[.[] | select(.id=="'$ID_A'")] | length')" = 0
 
-          # O cliente continua intacto no tenant A.
           OWN=$(curl -fsS http://127.0.0.1:5080/api/v1/clients/$ID_A -H "Authorization: Bearer $TA")
-          test "$(echo "$OWN" | jq -r .name)" = 'Cliente A'
+          test "$(echo "$OWN" | jq -r .name)" = 'Cliente A Atualizado'
           test "$(echo "$OWN" | jq -r .birthDate)" = '1990-05-20'
