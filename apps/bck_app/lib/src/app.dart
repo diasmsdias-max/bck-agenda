@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'core/api/bck_api_client.dart';
-import 'features/onboarding/welcome_page.dart';
+import 'features/auth/session_gate.dart';
 
 class BckAgendaApp extends StatelessWidget {
   const BckAgendaApp({super.key});
@@ -19,7 +19,7 @@ class BckAgendaApp extends StatelessWidget {
         inputDecorationTheme: const InputDecorationTheme(border: OutlineInputBorder()),
         useMaterial3: true,
       ),
-      home: WelcomePage(apiClient: apiClient),
+      home: SessionGate(apiClient: apiClient),
     );
   }
 }
