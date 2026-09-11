@@ -37,7 +37,10 @@ class _BckAgendaAppState extends State<BckAgendaApp> {
         title: 'BCK Agenda',
         debugShowCheckedModeBanner: false,
         theme: BckTheme.dark(_themeController.accentTheme),
-        home: SessionGate(apiClient: _apiClient),
+        home: SessionGate(
+          apiClient: _apiClient,
+          themeController: _themeController,
+        ),
       ),
     );
   }
