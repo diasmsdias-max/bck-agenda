@@ -1,4 +1,5 @@
 import 'package:bck_agenda/src/core/api/bck_api_client.dart';
+import 'package:bck_agenda/src/core/theme/theme_controller.dart';
 import 'package:bck_agenda/src/features/onboarding/welcome_page.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -9,10 +10,14 @@ void main() {
     final apiClient = BckApiClient(
       dio: Dio(BaseOptions(baseUrl: 'http://127.0.0.1:5080')),
     );
+    final themeController = ThemeController();
 
     await tester.pumpWidget(
       MaterialApp(
-        home: WelcomePage(apiClient: apiClient),
+        home: WelcomePage(
+          apiClient: apiClient,
+          themeController: themeController,
+        ),
       ),
     );
 
@@ -20,5 +25,7 @@ void main() {
     expect(find.text('Organize. Atenda. Gerencie.'), findsOneWidget);
     expect(find.text('Criar minha empresa'), findsOneWidget);
     expect(find.text('Conectar a uma empresa existente'), findsOneWidget);
+
+    themeController.dispose();
   });
 }

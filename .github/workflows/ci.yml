@@ -69,7 +69,7 @@ jobs:
           curl -fsS -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$APPT" >/dev/null
           FORCE=$(echo "$APPT"|jq '.forceConflict=true'); test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$FORCE")" = 403
           psql -h localhost -U bck -d bck_agenda -c "insert into user_permission(user_id,permission_id,granted) select '$USER_ID',id,true from permission where code='ALLOW_FIT_IN' on conflict(user_id,permission_id) do update set granted=true"
-          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$FORCE")" = 201
+          FIT_RESPONSE=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $USER_ACCESS" -H 'Content-Type: application/json' -d "$FORCE"); test "$(echo "$FIT_RESPONSE"|jq -r .isFitIn)" = true
           psql -h localhost -U bck -d bck_agenda -c "update device set status='REVOKED',revoked_at=now(),security_version=security_version+1 where id='$USER_DEVICE'"
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:5080/api/v1/auth/me -H "Authorization: Bearer $USER_ACCESS")" = 401
           test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/auth/refresh -H 'Content-Type: application/json' -d "$(jq -nc --arg t "$USER_REFRESH" '{refreshToken:$t}')")" = 401

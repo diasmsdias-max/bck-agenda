@@ -1,0 +1,84 @@
+name: BCK Alpha Android
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'URL da API BCK para o APK de teste (ex.: https://alpha.exemplo.com)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build-alpha-apk:
+    name: Build Alpha 0.1 APK
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/bck_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Bootstrap Android platform
+        run: |
+          mkdir -p /tmp/bck-tests
+          cp -a test/. /tmp/bck-tests/
+          flutter create --platforms=android --project-name=bck_agenda --org=com.bckagenda .
+          rm -rf test
+          mkdir -p test
+          cp -a /tmp/bck-tests/. test/
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Generate sources
+        run: dart run build_runner build
+
+      - name: Analyze errors and warnings
+        run: flutter analyze --no-fatal-infos
+
+      - name: Test
+        run: flutter test
+
+      - name: Resolve API URL
+        id: api
+        shell: bash
+        run: |
+          API_URL='${{ github.event.inputs.api_url }}'
+          if [ -z "$API_URL" ]; then
+            API_URL='http://192.168.1.140:5080'
+          fi
+          if [[ "$API_URL" != http://* && "$API_URL" != https://* ]]; then
+            echo 'api_url deve começar com http:// ou https://' >&2
+            exit 1
+          fi
+          API_URL="${API_URL%/}"
+          echo "url=$API_URL" >> "$GITHUB_OUTPUT"
+          echo "APK será gerado para: $API_URL"
+
+      - name: Build Alpha APK
+        run: flutter build apk --debug --dart-define=BCK_API_URL=${{ steps.api.outputs.url }}
+
+      - name: Stage artifact
+        run: |
+          mkdir -p ../../artifacts
+          cp build/app/outputs/flutter-apk/app-debug.apk ../../artifacts/BCK-Agenda-Alpha-0.1-LAN.apk
+
+      - name: Upload Alpha APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCK-Agenda-Alpha-0.1-Android-LAN
+          path: artifacts/BCK-Agenda-Alpha-0.1-LAN.apk
+          if-no-files-found: error
+          retention-days: 14
