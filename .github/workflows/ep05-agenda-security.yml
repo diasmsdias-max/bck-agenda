@@ -1,0 +1,71 @@
+name: BCK EP05 Agenda Security
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  agenda-security:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: bck_agenda
+          POSTGRES_USER: bck
+          POSTGRES_PASSWORD: bck_ci
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U bck -d bck_agenda" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGPASSWORD: bck_ci
+      BCK_POSTGRES_CONNECTION: Host=localhost;Port=5432;Database=bck_agenda;Username=bck;Password=bck_ci
+      ASPNETCORE_URLS: http://127.0.0.1:5080
+      BCK_JWT_SIGNING_KEY: bck-agenda-ci-signing-key-at-least-32-bytes-long
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with: { dotnet-version: '10.0.x' }
+      - name: Apply migrations
+        run: for migration in database/migrations/*.sql; do psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 -f "$migration"; done
+      - name: Start API
+        run: |
+          dotnet run --project server/src/Bck.Api/Bck.Api.csproj --no-launch-profile > /tmp/bck-api.log 2>&1 &
+          for i in {1..30}; do curl -fsS http://127.0.0.1:5080/api/v1/health >/dev/null && exit 0; sleep 1; done
+          cat /tmp/bck-api.log; exit 1
+      - name: Protect appointment ownership, tenant and reschedule history
+        shell: bash
+        run: |
+          set -euo pipefail
+          uuid(){ cat /proc/sys/kernel/random/uuid; }
+          boot(){ curl -fsS -X POST http://127.0.0.1:5080/api/v1/bootstrap/company -H 'Content-Type: application/json' -d "$1"; }
+          DA=$(uuid); DB=$(uuid)
+          A=$(boot "{\"companyName\":\"Agenda A\",\"ownerName\":\"Admin A\",\"ownerUsername\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DA\",\"deviceName\":\"A\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          B=$(boot "{\"companyName\":\"Agenda B\",\"ownerName\":\"Admin B\",\"ownerUsername\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DB\",\"deviceName\":\"B\",\"platform\":\"ANDROID\",\"deviceMode\":\"PERSONAL\"}")
+          GA=$(echo "$A"|jq -r .groupId); OA=$(echo "$A"|jq -r .userId); GB=$(echo "$B"|jq -r .groupId); OB=$(echo "$B"|jq -r .userId)
+          LA=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GA\",\"username\":\"admina\",\"password\":\"SenhaA123!\",\"deviceId\":\"$DA\"}"); TA=$(echo "$LA"|jq -r .accessToken)
+          LB=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GB\",\"username\":\"adminb\",\"password\":\"SenhaB123!\",\"deviceId\":\"$DB\"}"); TB=$(echo "$LB"|jq -r .accessToken)
+          HASH=$(psql -h localhost -U bck -d bck_agenda -tAc "select password_hash from bck_user where id='$OA'")
+          U1=$(uuid); U2=$(uuid); D1=$(uuid); D2=$(uuid)
+          psql -h localhost -U bck -d bck_agenda -v ON_ERROR_STOP=1 <<SQL
+          insert into bck_user(id,group_id,name,profile,is_owner,serves_clients,password_hash,username) values
+          ('$U1','$GA','Profissional Um','USER',false,true,'$HASH','prof1'),('$U2','$GA','Profissional Dois','USER',false,true,'$HASH','prof2');
+          insert into device(id,group_id,name,platform,device_mode,status) values
+          ('$D1','$GA','Device 1','ANDROID','PERSONAL','ACTIVE'),('$D2','$GA','Device 2','ANDROID','PERSONAL','ACTIVE');
+          insert into device_user(device_id,user_id) values('$D1','$U1'),('$D2','$U2');
+          SQL
+          T1=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GA\",\"username\":\"prof1\",\"password\":\"SenhaA123!\",\"deviceId\":\"$D1\"}"|jq -r .accessToken)
+          T2=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/auth/login -H 'Content-Type: application/json' -d "{\"groupId\":\"$GA\",\"username\":\"prof2\",\"password\":\"SenhaA123!\",\"deviceId\":\"$D2\"}"|jq -r .accessToken)
+          S=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/services -H "Authorization: Bearer $TA" -H 'Content-Type: application/json' -d '{"name":"Corte EP05","standardPrice":50,"standardDurationMinutes":30}'); SID=$(echo "$S"|jq -r .id)
+          AP=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/appointments -H "Authorization: Bearer $T1" -H 'Content-Type: application/json' -d "{\"professionalUserId\":\"$U1\",\"walkInName\":\"Cliente EP05\",\"startsAt\":\"2026-09-12T10:00:00Z\",\"durationMinutes\":30,\"serviceId\":\"$SID\"}"); AID=$(echo "$AP"|jq -r .id)
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH http://127.0.0.1:5080/api/v1/appointments/$AID/status -H "Authorization: Bearer $T2" -H 'Content-Type: application/json' -d '{"status":"CONFIRMED"}')" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments/$AID/reschedule -H "Authorization: Bearer $T2" -H 'Content-Type: application/json' -d "{\"professionalUserId\":\"$U2\",\"startsAt\":\"2026-09-12T11:00:00Z\",\"durationMinutes\":30}")" = 403
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X PATCH http://127.0.0.1:5080/api/v1/appointments/$AID/status -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d '{"status":"CONFIRMED"}')" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' -X POST http://127.0.0.1:5080/api/v1/appointments/$AID/reschedule -H "Authorization: Bearer $TB" -H 'Content-Type: application/json' -d "{\"professionalUserId\":\"$OB\",\"startsAt\":\"2026-09-12T11:00:00Z\",\"durationMinutes\":30}")" = 404
+          R=$(curl -fsS -X POST http://127.0.0.1:5080/api/v1/appointments/$AID/reschedule -H "Authorization: Bearer $T1" -H 'Content-Type: application/json' -d "{\"professionalUserId\":\"$U1\",\"startsAt\":\"2026-09-12T11:00:00Z\",\"durationMinutes\":30,\"reason\":\"Cliente solicitou\"}")
+          NID=$(echo "$R"|jq -r .newAppointment.id); test "$(echo "$R"|jq -r .originalAppointmentId)" = "$AID"; test -n "$NID"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select status from appointment where id='$AID' and group_id='$GA'")" = "RESCHEDULED"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select rescheduled_to_appointment_id from appointment where id='$AID'")" = "$NID"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select rescheduled_from_appointment_id from appointment where id='$NID'")" = "$AID"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from appointment_status_history where group_id='$GA' and appointment_id in ('$AID','$NID') and to_status in ('RESCHEDULED','SCHEDULED')")" = "2"
