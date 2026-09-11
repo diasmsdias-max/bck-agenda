@@ -1,5 +1,5 @@
-import 'package:bck_app/src/core/api/bck_api_client.dart';
-import 'package:bck_app/src/features/agenda/agenda_layout.dart';
+import 'package:bck_agenda/src/core/api/bck_api_client.dart';
+import 'package:bck_agenda/src/features/agenda/agenda_layout.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AppointmentItem appointment(
