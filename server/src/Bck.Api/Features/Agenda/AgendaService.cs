@@ -9,10 +9,20 @@ public sealed record ServiceSummary(Guid Id, string Name, decimal StandardPrice,
 public sealed record CreateAppointmentRequest(Guid GroupId, Guid ProfessionalUserId, Guid CreatedByUserId, Guid? ClientId, string? WalkInName, string? WalkInPhone, DateTimeOffset StartsAt, int DurationMinutes, Guid ServiceId, bool IsFitIn = false, string? Notes = null, bool ForceConflict = false);
 public sealed record AppointmentSummary(Guid Id, Guid ProfessionalUserId, Guid? ClientId, string ClientName, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status, bool IsFitIn);
 public sealed record AvailabilityResponse(bool Available, IReadOnlyList<AppointmentSummary> Conflicts);
+public sealed record ChangeAppointmentStatusRequest(string Status, string? Reason = null);
 
 public sealed class AgendaService(IConfiguration configuration)
 {
     private string ConnectionString => configuration.GetConnectionString("Postgres") ?? Environment.GetEnvironmentVariable("BCK_POSTGRES_CONNECTION") ?? throw new InvalidOperationException("PostgreSQL connection is not configured.");
+    private static readonly HashSet<string> AppointmentStatuses = new(StringComparer.OrdinalIgnoreCase) { "SCHEDULED", "CONFIRMED", "WAITING", "IN_SERVICE", "FINISHED", "CANCELLED", "NO_SHOW", "RESCHEDULED" };
+    private static readonly Dictionary<string, HashSet<string>> AllowedTransitions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["SCHEDULED"] = new(StringComparer.OrdinalIgnoreCase) { "CONFIRMED", "WAITING", "CANCELLED", "NO_SHOW", "RESCHEDULED" },
+        ["CONFIRMED"] = new(StringComparer.OrdinalIgnoreCase) { "WAITING", "IN_SERVICE", "CANCELLED", "NO_SHOW", "RESCHEDULED" },
+        ["WAITING"] = new(StringComparer.OrdinalIgnoreCase) { "IN_SERVICE", "CANCELLED", "NO_SHOW", "RESCHEDULED" },
+        ["IN_SERVICE"] = new(StringComparer.OrdinalIgnoreCase) { "FINISHED", "CANCELLED" },
+        ["FINISHED"] = new(StringComparer.OrdinalIgnoreCase), ["CANCELLED"] = new(StringComparer.OrdinalIgnoreCase), ["NO_SHOW"] = new(StringComparer.OrdinalIgnoreCase), ["RESCHEDULED"] = new(StringComparer.OrdinalIgnoreCase)
+    };
 
     public async Task<ClientSummary> CreateClientAsync(CreateClientRequest request, CancellationToken ct)
     {
@@ -57,17 +67,11 @@ public sealed class AgendaService(IConfiguration configuration)
     {
         if (request.DurationMinutes <= 0 || (request.ClientId is null && string.IsNullOrWhiteSpace(request.WalkInName))) throw new ArgumentException("Cliente e duração são obrigatórios.");
         var endsAt = request.StartsAt.AddMinutes(request.DurationMinutes);
-
         await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); await using var transaction = await connection.BeginTransactionAsync(ct);
-        await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", connection, transaction))
-        {
-            lockCommand.Parameters.AddWithValue($"{request.GroupId:N}:{request.ProfessionalUserId:N}");
-            await lockCommand.ExecuteNonQueryAsync(ct);
-        }
+        await using (var lockCommand = new NpgsqlCommand("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", connection, transaction)) { lockCommand.Parameters.AddWithValue($"{request.GroupId:N}:{request.ProfessionalUserId:N}"); await lockCommand.ExecuteNonQueryAsync(ct); }
         var conflicts = await FindAppointmentsAsync(connection, transaction, request.GroupId, request.ProfessionalUserId, request.StartsAt, endsAt, true, ct);
         if (conflicts.Count > 0 && !request.ForceConflict) throw new InvalidOperationException("APPOINTMENT_CONFLICT");
         var isFitIn = request.IsFitIn || (conflicts.Count > 0 && request.ForceConflict);
-
         decimal price; int serviceDuration; string clientName;
         await using (var professionalCommand = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true AND serves_clients=true", connection, transaction)) { professionalCommand.Parameters.AddWithValue(request.ProfessionalUserId); professionalCommand.Parameters.AddWithValue(request.GroupId); if (await professionalCommand.ExecuteScalarAsync(ct) is null) throw new ArgumentException("Profissional não encontrado ou não habilitado para atender."); }
         await using (var creatorCommand = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction)) { creatorCommand.Parameters.AddWithValue(request.CreatedByUserId); creatorCommand.Parameters.AddWithValue(request.GroupId); if (await creatorCommand.ExecuteScalarAsync(ct) is null) throw new ArgumentException("Usuário responsável não encontrado."); }
@@ -80,16 +84,21 @@ public sealed class AgendaService(IConfiguration configuration)
         await transaction.CommitAsync(ct); return new(appointmentId, request.ProfessionalUserId, request.ClientId, clientName, request.StartsAt, endsAt, "SCHEDULED", isFitIn);
     }
 
-    public async Task<IReadOnlyList<AppointmentSummary>> ListAppointmentsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct) => await FindAppointmentsAsync(groupId, professionalUserId, from, to, false, ct);
-
-    private async Task<List<AppointmentSummary>> FindConflictsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct) => await FindAppointmentsAsync(groupId, professionalUserId, startsAt, endsAt, true, ct);
-
-    private async Task<List<AppointmentSummary>> FindAppointmentsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
+    public async Task<string> ChangeStatusAsync(Guid groupId, Guid appointmentId, Guid changedByUserId, string status, string? reason, CancellationToken ct)
     {
-        await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct);
-        return await FindAppointmentsAsync(connection, null, groupId, professionalUserId, from, to, overlap, ct);
+        var target = status.Trim().ToUpperInvariant(); if (!AppointmentStatuses.Contains(target)) throw new ArgumentException("Status de agendamento inválido.");
+        await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); await using var transaction = await connection.BeginTransactionAsync(ct);
+        string? current; await using (var q = new NpgsqlCommand("SELECT status FROM appointment WHERE id=$1 AND group_id=$2 FOR UPDATE", connection, transaction)) { q.Parameters.AddWithValue(appointmentId); q.Parameters.AddWithValue(groupId); current = (string?)await q.ExecuteScalarAsync(ct); }
+        if (current is null) return "NOT_FOUND"; if (string.Equals(current,target,StringComparison.OrdinalIgnoreCase)) return "UNCHANGED";
+        if (!AllowedTransitions.TryGetValue(current,out var allowed) || !allowed.Contains(target)) throw new InvalidOperationException("INVALID_STATUS_TRANSITION");
+        await using (var q = new NpgsqlCommand("UPDATE appointment SET status=$1,updated_at=now() WHERE id=$2 AND group_id=$3", connection, transaction)) { q.Parameters.AddWithValue(target); q.Parameters.AddWithValue(appointmentId); q.Parameters.AddWithValue(groupId); await q.ExecuteNonQueryAsync(ct); }
+        await using (var h = new NpgsqlCommand("INSERT INTO appointment_status_history(group_id,appointment_id,from_status,to_status,changed_by_user_id,reason) VALUES($1,$2,$3,$4,$5,$6)", connection, transaction)) { h.Parameters.AddWithValue(groupId); h.Parameters.AddWithValue(appointmentId); h.Parameters.AddWithValue(current); h.Parameters.AddWithValue(target); h.Parameters.AddWithValue(changedByUserId); h.Parameters.AddWithValue((object?)reason?.Trim() ?? DBNull.Value); await h.ExecuteNonQueryAsync(ct); }
+        await transaction.CommitAsync(ct); return "UPDATED";
     }
 
+    public async Task<IReadOnlyList<AppointmentSummary>> ListAppointmentsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, CancellationToken ct) => await FindAppointmentsAsync(groupId, professionalUserId, from, to, false, ct);
+    private async Task<List<AppointmentSummary>> FindConflictsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset startsAt, DateTimeOffset endsAt, CancellationToken ct) => await FindAppointmentsAsync(groupId, professionalUserId, startsAt, endsAt, true, ct);
+    private async Task<List<AppointmentSummary>> FindAppointmentsAsync(Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct) { await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); return await FindAppointmentsAsync(connection, null, groupId, professionalUserId, from, to, overlap, ct); }
     private static async Task<List<AppointmentSummary>> FindAppointmentsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
     {
         var timeClause = overlap ? "a.starts_at < $4 AND a.ends_at > $3" : "a.starts_at >= $3 AND a.starts_at < $4";
