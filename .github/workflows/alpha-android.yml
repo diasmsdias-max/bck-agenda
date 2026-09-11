@@ -29,10 +29,12 @@ jobs:
         run: |
           mkdir -p /tmp/bck-tests
           cp -a test/. /tmp/bck-tests/
+          cp analysis_options.yaml /tmp/bck-analysis-options.yaml
           flutter create --platforms=android --project-name=bck_agenda --org=com.bckagenda .
           rm -rf test
           mkdir -p test
           cp -a /tmp/bck-tests/. test/
+          cp /tmp/bck-analysis-options.yaml analysis_options.yaml
 
       - name: Dependencies
         run: flutter pub get
