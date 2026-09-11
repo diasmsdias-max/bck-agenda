@@ -4,11 +4,18 @@ import '../../core/api/bck_api_client.dart';
 import '../../core/auth/session_store.dart';
 import '../../core/device/device_identity_store.dart';
 import '../../core/device/pending_pairing_store.dart';
+import '../../core/theme/theme_controller.dart';
 import '../home/home_shell.dart';
 
 class ConnectCompanyPage extends StatefulWidget {
-  const ConnectCompanyPage({super.key, required this.apiClient});
+  const ConnectCompanyPage({
+    super.key,
+    required this.apiClient,
+    required this.themeController,
+  });
+
   final BckApiClient apiClient;
+  final ThemeController themeController;
 
   @override
   State<ConnectCompanyPage> createState() => _ConnectCompanyPageState();
@@ -114,6 +121,7 @@ class _ConnectCompanyPageState extends State<ConnectCompanyPage> {
             ),
             offline: false,
             apiClient: widget.apiClient,
+            themeController: widget.themeController,
           ),
         ),
         (_) => false,
