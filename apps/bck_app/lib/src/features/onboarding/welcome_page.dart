@@ -1,13 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/bck_api_client.dart';
+import '../../core/theme/theme_controller.dart';
 import 'connect_company_page.dart';
 import 'create_company_page.dart';
 
 class WelcomePage extends StatelessWidget {
-  const WelcomePage({super.key, required this.apiClient});
+  const WelcomePage({
+    super.key,
+    required this.apiClient,
+    required this.themeController,
+  });
 
   final BckApiClient apiClient;
+  final ThemeController themeController;
 
   @override
   Widget build(BuildContext context) {
@@ -19,10 +25,10 @@ class WelcomePage extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Spacer(),
-              const Icon(
+              Icon(
                 Icons.calendar_month_rounded,
                 size: 72,
-                color: Color(0xFFD6A84B),
+                color: Theme.of(context).colorScheme.primary,
               ),
               const SizedBox(height: 24),
               Text(
@@ -57,7 +63,10 @@ class WelcomePage extends StatelessWidget {
               OutlinedButton.icon(
                 onPressed: () => Navigator.of(context).push(
                   MaterialPageRoute(
-                    builder: (_) => ConnectCompanyPage(apiClient: apiClient),
+                    builder: (_) => ConnectCompanyPage(
+                      apiClient: apiClient,
+                      themeController: themeController,
+                    ),
                   ),
                 ),
                 icon: const Icon(Icons.sync_rounded),
