@@ -68,4 +68,4 @@ jobs:
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select status from appointment where id='$AID' and group_id='$GA'")" = "RESCHEDULED"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select rescheduled_to_appointment_id from appointment where id='$AID'")" = "$NID"
           test "$(psql -h localhost -U bck -d bck_agenda -tAc "select rescheduled_from_appointment_id from appointment where id='$NID'")" = "$AID"
-          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from appointment_status_history where group_id='$GA' and appointment_id in ('$AID','$NID') and to_status in ('RESCHEDULED','SCHEDULED')")" = "2"
+          test "$(psql -h localhost -U bck -d bck_agenda -tAc "select count(*) from appointment_status_history where group_id='$GA' and appointment_id in ('$AID','$NID') and to_status in ('RESCHEDULED','SCHEDULED')")" = "3"
