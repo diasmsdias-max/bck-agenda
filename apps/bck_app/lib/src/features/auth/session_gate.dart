@@ -2,12 +2,18 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/bck_api_client.dart';
 import '../../core/auth/session_store.dart';
+import '../../core/theme/theme_controller.dart';
 import '../home/home_shell.dart';
 import '../onboarding/welcome_page.dart';
 
 class SessionGate extends StatefulWidget {
-  const SessionGate({super.key, required this.apiClient});
+  const SessionGate({
+    super.key,
+    required this.apiClient,
+    required this.themeController,
+  });
   final BckApiClient apiClient;
+  final ThemeController themeController;
 
   @override
   State<SessionGate> createState() => _SessionGateState();
@@ -17,6 +23,13 @@ class _SessionGateState extends State<SessionGate> {
   final SessionStore _store = SessionStore();
   late final Future<Widget> _destination = _resolve();
 
+  HomeShell _home(StoredSession session, {required bool offline}) => HomeShell(
+        session: session,
+        offline: offline,
+        apiClient: widget.apiClient,
+        themeController: widget.themeController,
+      );
+
   Future<Widget> _resolve() async {
     final session = await _store.read();
     if (session == null) return WelcomePage(apiClient: widget.apiClient);
@@ -24,7 +37,7 @@ class _SessionGateState extends State<SessionGate> {
     final now = session.estimatedServerNow();
     if (now.isBefore(session.accessTokenExpiresAt.toUtc())) {
       widget.apiClient.setAccessToken(session.accessToken);
-      return HomeShell(session: session, offline: false, apiClient: widget.apiClient);
+      return _home(session, offline: false);
     }
 
     if (now.isBefore(session.refreshTokenExpiresAt.toUtc())) {
@@ -42,19 +55,19 @@ class _SessionGateState extends State<SessionGate> {
         final updated = await _store.read();
         if (updated != null) {
           widget.apiClient.setAccessToken(updated.accessToken);
-          return HomeShell(session: updated, offline: false, apiClient: widget.apiClient);
+          return _home(updated, offline: false);
         }
       } catch (_) {
         if (session.canOperateOffline) {
           widget.apiClient.setAccessToken(null);
-          return HomeShell(session: session, offline: true, apiClient: widget.apiClient);
+          return _home(session, offline: true);
         }
       }
     }
 
     if (session.canOperateOffline) {
       widget.apiClient.setAccessToken(null);
-      return HomeShell(session: session, offline: true, apiClient: widget.apiClient);
+      return _home(session, offline: true);
     }
     widget.apiClient.setAccessToken(null);
     await _store.clear();
