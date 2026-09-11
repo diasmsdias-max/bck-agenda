@@ -56,6 +56,7 @@ public sealed class AgendaService(IConfiguration configuration)
     public async Task<AppointmentSummary> CreateAppointmentAsync(CreateAppointmentRequest request, CancellationToken ct)
     {
         if (request.DurationMinutes <= 0 || (request.ClientId is null && string.IsNullOrWhiteSpace(request.WalkInName))) throw new ArgumentException("Cliente e duração são obrigatórios.");
+        if (request.ForceConflict && !request.IsFitIn) throw new ArgumentException("Um conflito só pode ser forçado quando o agendamento estiver identificado como encaixe.");
         var endsAt = request.StartsAt.AddMinutes(request.DurationMinutes);
 
         await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct); await using var transaction = await connection.BeginTransactionAsync(ct);
