@@ -1,7 +1,34 @@
 import '../../core/api/bck_api_client.dart';
 
-/// Carrega, em paralelo, as agendas dos profissionais visíveis ao Administrador
-/// e devolve uma única linha do tempo ordenada.
+typedef ProfessionalAppointmentsLoader = Future<List<AppointmentItem>> Function(
+  String professionalUserId,
+);
+
+/// Consolida as agendas dos profissionais em uma única linha do tempo.
+///
+/// IDs repetidos são removidos antes das consultas. O desempate de horários
+/// iguais usa o profissional e, por fim, o ID do atendimento para manter uma
+/// ordem determinística na visão administrativa "Todos".
+Future<List<AppointmentItem>> consolidateTeamAppointments({
+  required Iterable<String> professionalUserIds,
+  required ProfessionalAppointmentsLoader loadProfessional,
+}) async {
+  final ids = professionalUserIds.toSet().toList(growable: false);
+  if (ids.isEmpty) return const <AppointmentItem>[];
+
+  final batches = await Future.wait(ids.map(loadProfessional));
+  final appointments = batches.expand((items) => items).toList(growable: false);
+  appointments.sort((a, b) {
+    final byStart = a.startsAt.compareTo(b.startsAt);
+    if (byStart != 0) return byStart;
+    final byProfessional = a.professionalUserId.compareTo(b.professionalUserId);
+    if (byProfessional != 0) return byProfessional;
+    return a.id.compareTo(b.id);
+  });
+  return appointments;
+}
+
+/// Carrega, em paralelo, as agendas dos profissionais visíveis ao Administrador.
 ///
 /// A API continua aplicando o isolamento do tenant a cada consulta. A
 /// consolidação acontece apenas no cliente autenticado como Administrador,
@@ -13,26 +40,13 @@ Future<List<AppointmentItem>> loadTeamAppointments({
   required Iterable<String> professionalUserIds,
   required DateTime from,
   required DateTime to,
-}) async {
-  final ids = professionalUserIds.toSet().toList(growable: false);
-  if (ids.isEmpty) return const <AppointmentItem>[];
-
-  final batches = await Future.wait(
-    ids.map(
-      (professionalUserId) => apiClient.appointments(
+}) =>
+    consolidateTeamAppointments(
+      professionalUserIds: professionalUserIds,
+      loadProfessional: (professionalUserId) => apiClient.appointments(
         groupId: groupId,
         professionalUserId: professionalUserId,
         from: from,
         to: to,
       ),
-    ),
-  );
-
-  final appointments = batches.expand((items) => items).toList(growable: false);
-  appointments.sort((a, b) {
-    final byStart = a.startsAt.compareTo(b.startsAt);
-    if (byStart != 0) return byStart;
-    return a.professionalUserId.compareTo(b.professionalUserId);
-  });
-  return appointments;
-}
+    );
