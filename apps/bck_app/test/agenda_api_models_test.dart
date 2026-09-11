@@ -1,4 +1,4 @@
-import 'package:bck_app/src/core/api/bck_api_client.dart';
+import 'package:bck_agenda/src/core/api/bck_api_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
