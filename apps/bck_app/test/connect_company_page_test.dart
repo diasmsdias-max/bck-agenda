@@ -1,4 +1,5 @@
 import 'package:bck_agenda/src/core/api/bck_api_client.dart';
+import 'package:bck_agenda/src/core/theme/theme_controller.dart';
 import 'package:bck_agenda/src/features/onboarding/connect_company_page.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
@@ -14,10 +15,15 @@ void main() {
         dio: Dio(BaseOptions(baseUrl: 'http://127.0.0.1:5080')),
       );
 
+  Widget page() => MaterialApp(
+        home: ConnectCompanyPage(
+          apiClient: apiClient(),
+          themeController: ThemeController(),
+        ),
+      );
+
   testWidgets('pareamento novo exige código e nome do aparelho', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(home: ConnectCompanyPage(apiClient: apiClient())),
-    );
+    await tester.pumpWidget(page());
     await tester.pumpAndSettle();
 
     expect(find.text('Empresa existente'), findsOneWidget);
@@ -34,9 +40,7 @@ void main() {
       'pairing.pending.deviceId': 'device-1',
     });
 
-    await tester.pumpWidget(
-      MaterialApp(home: ConnectCompanyPage(apiClient: apiClient())),
-    );
+    await tester.pumpWidget(page());
     await tester.pumpAndSettle();
 
     expect(find.text('Concluir conexão'), findsWidgets);
@@ -61,9 +65,7 @@ void main() {
       'pairing.pending.deviceId': 'device-1',
     });
 
-    await tester.pumpWidget(
-      MaterialApp(home: ConnectCompanyPage(apiClient: apiClient())),
-    );
+    await tester.pumpWidget(page());
     await tester.pumpAndSettle();
     await tester.tap(find.text('Usar outro código'));
     await tester.pumpAndSettle();
