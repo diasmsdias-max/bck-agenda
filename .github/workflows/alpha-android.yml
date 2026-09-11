@@ -57,7 +57,7 @@ jobs:
         run: |
           API_URL='${{ github.event.inputs.api_url }}'
           if [ -z "$API_URL" ]; then
-            API_URL='http://10.0.2.2:5080'
+            API_URL='http://192.168.1.140:5080'
           fi
           if [[ "$API_URL" != http://* && "$API_URL" != https://* ]]; then
             echo 'api_url deve começar com http:// ou https://' >&2
@@ -73,12 +73,12 @@ jobs:
       - name: Stage artifact
         run: |
           mkdir -p ../../artifacts
-          cp build/app/outputs/flutter-apk/app-debug.apk ../../artifacts/BCK-Agenda-Alpha-0.1.apk
+          cp build/app/outputs/flutter-apk/app-debug.apk ../../artifacts/BCK-Agenda-Alpha-0.1-LAN.apk
 
       - name: Upload Alpha APK
         uses: actions/upload-artifact@v4
         with:
-          name: BCK-Agenda-Alpha-0.1-Android
-          path: artifacts/BCK-Agenda-Alpha-0.1.apk
+          name: BCK-Agenda-Alpha-0.1-Android-LAN
+          path: artifacts/BCK-Agenda-Alpha-0.1-LAN.apk
           if-no-files-found: error
           retention-days: 14
