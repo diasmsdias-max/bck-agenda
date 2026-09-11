@@ -30,9 +30,14 @@ class _SessionGateState extends State<SessionGate> {
         themeController: widget.themeController,
       );
 
+  WelcomePage get _welcome => WelcomePage(
+        apiClient: widget.apiClient,
+        themeController: widget.themeController,
+      );
+
   Future<Widget> _resolve() async {
     final session = await _store.read();
-    if (session == null) return WelcomePage(apiClient: widget.apiClient);
+    if (session == null) return _welcome;
 
     final now = session.estimatedServerNow();
     if (now.isBefore(session.accessTokenExpiresAt.toUtc())) {
@@ -71,7 +76,7 @@ class _SessionGateState extends State<SessionGate> {
     }
     widget.apiClient.setAccessToken(null);
     await _store.clear();
-    return WelcomePage(apiClient: widget.apiClient);
+    return _welcome;
   }
 
   @override
