@@ -1,0 +1,54 @@
+name: BCK Alpha Android
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-alpha-apk:
+    name: Build Alpha 0.1 APK
+    runs-on: ubuntu-24.04
+    defaults:
+      run:
+        working-directory: apps/bck_app
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Dependencies
+        run: flutter pub get
+
+      - name: Generate sources
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Test
+        run: flutter test
+
+      - name: Build Alpha APK
+        run: flutter build apk --debug
+
+      - name: Stage artifact
+        run: |
+          mkdir -p ../../artifacts
+          cp build/app/outputs/flutter-apk/app-debug.apk ../../artifacts/BCK-Agenda-Alpha-0.1.apk
+
+      - name: Upload Alpha APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: BCK-Agenda-Alpha-0.1-Android
+          path: artifacts/BCK-Agenda-Alpha-0.1.apk
+          if-no-files-found: error
+          retention-days: 14
