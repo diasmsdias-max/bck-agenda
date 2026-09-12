@@ -116,6 +116,18 @@ public sealed class ServiceSessionService(IConfiguration configuration)
         return (await GetAsync(groupId, sessionId, ct))!;
     }
 
+    public async Task<ServiceSessionSummary?> GetByAppointmentAsync(Guid groupId, Guid appointmentId, CancellationToken ct)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(ct);
+        const string sql = "SELECT id FROM service_session WHERE appointment_id=$1 AND group_id=$2";
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue(appointmentId);
+        command.Parameters.AddWithValue(groupId);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is Guid sessionId ? await GetAsync(groupId, sessionId, ct) : null;
+    }
+
     public async Task<ServiceSessionItemSummary> AddItemAsync(Guid groupId, Guid sessionId, Guid userId, AddServiceSessionItemRequest request, bool canDiscount, CancellationToken ct)
     {
         var itemType = request.ItemType.Trim().ToUpperInvariant();
