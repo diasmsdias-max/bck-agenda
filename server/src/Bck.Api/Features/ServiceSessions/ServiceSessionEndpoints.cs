@@ -9,6 +9,7 @@ public static class ServiceSessionEndpoints
     {
         api.MapPost("/service-sessions", OpenAsync);
         api.MapGet("/service-sessions/{id:guid}", GetAsync);
+        api.MapGet("/appointments/{appointmentId:guid}/service-session", GetByAppointmentAsync);
         api.MapPost("/service-sessions/{id:guid}/items", AddItemAsync);
         api.MapPost("/service-sessions/{id:guid}/finish", FinishAsync);
         return api;
@@ -35,6 +36,14 @@ public static class ServiceSessionEndpoints
     private static async Task<IResult> GetAsync(Guid id, ClaimsPrincipal user, ServiceSessionService service, CancellationToken ct)
     {
         var result = await service.GetAsync(GroupId(user), id, ct);
+        if (result is null) return Results.NotFound();
+        if (!CanAccess(user, result.ProfessionalUserId)) return Results.Forbid();
+        return Results.Ok(result);
+    }
+
+    private static async Task<IResult> GetByAppointmentAsync(Guid appointmentId, ClaimsPrincipal user, ServiceSessionService service, CancellationToken ct)
+    {
+        var result = await service.GetByAppointmentAsync(GroupId(user), appointmentId, ct);
         if (result is null) return Results.NotFound();
         if (!CanAccess(user, result.ProfessionalUserId)) return Results.Forbid();
         return Results.Ok(result);
