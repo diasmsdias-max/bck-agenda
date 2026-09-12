@@ -5,17 +5,17 @@ namespace Bck.Api.Tests;
 public sealed class ServiceSessionTransitionContractTests
 {
     [Theory]
-    [InlineData("SCHEDULED")]
     [InlineData("CONFIRMED")]
     [InlineData("WAITING")]
     public void Opening_service_session_moves_openable_appointment_to_in_service(string fromStatus)
     {
-        Assert.Contains(fromStatus, new[] { "SCHEDULED", "CONFIRMED", "WAITING" });
+        Assert.Contains(fromStatus, new[] { "CONFIRMED", "WAITING" });
         const string expected = "IN_SERVICE";
         Assert.Equal("IN_SERVICE", expected);
     }
 
     [Theory]
+    [InlineData("SCHEDULED")]
     [InlineData("FINISHED")]
     [InlineData("CANCELLED")]
     [InlineData("NO_SHOW")]
@@ -23,7 +23,7 @@ public sealed class ServiceSessionTransitionContractTests
     [InlineData("IN_SERVICE")]
     public void Non_openable_appointment_cannot_open_another_service_session(string status)
     {
-        Assert.Contains(status, new[] { "FINISHED", "CANCELLED", "NO_SHOW", "RESCHEDULED", "IN_SERVICE" });
+        Assert.Contains(status, new[] { "SCHEDULED", "FINISHED", "CANCELLED", "NO_SHOW", "RESCHEDULED", "IN_SERVICE" });
     }
 
     [Fact]
