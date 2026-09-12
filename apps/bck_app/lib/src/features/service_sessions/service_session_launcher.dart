@@ -1,9 +1,9 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 
+import '../../core/api/bck_api_client.dart';
 import '../../core/auth/session_store.dart';
 import '../../core/config/app_config.dart';
-import '../agenda/agenda_models.dart';
 import 'service_session_api.dart';
 import 'service_session_page.dart';
 
