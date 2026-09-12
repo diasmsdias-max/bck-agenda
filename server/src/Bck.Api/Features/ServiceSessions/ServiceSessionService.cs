@@ -41,7 +41,7 @@ public sealed class ServiceSessionService(IConfiguration configuration)
             appointmentStatus = reader.GetString(4);
         }
 
-        if (appointmentStatus is "FINISHED" or "CANCELLED" or "NO_SHOW" or "RESCHEDULED")
+        if (appointmentStatus is "FINISHED" or "CANCELLED" or "NO_SHOW" or "RESCHEDULED" or "IN_SERVICE")
             throw new InvalidOperationException("APPOINTMENT_NOT_OPENABLE");
 
         await using (var actor = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction))
@@ -92,6 +92,22 @@ public sealed class ServiceSessionService(IConfiguration configuration)
             seed.Parameters.AddWithValue(userId);
             seed.Parameters.AddWithValue(request.AppointmentId);
             await seed.ExecuteNonQueryAsync(ct);
+        }
+
+        await using (var appointment = new NpgsqlCommand("UPDATE appointment SET status='IN_SERVICE',actual_start_at=COALESCE(actual_start_at,now()),updated_at=now(),version=version+1 WHERE id=$1 AND group_id=$2 AND status=$3", connection, transaction))
+        {
+            appointment.Parameters.AddWithValue(request.AppointmentId);
+            appointment.Parameters.AddWithValue(groupId);
+            appointment.Parameters.AddWithValue(appointmentStatus);
+            if (await appointment.ExecuteNonQueryAsync(ct) != 1) throw new InvalidOperationException("APPOINTMENT_NOT_OPENABLE");
+        }
+        await using (var history = new NpgsqlCommand("INSERT INTO appointment_status_history(group_id,appointment_id,from_status,to_status,changed_by_user_id,reason) VALUES($1,$2,$3,'IN_SERVICE',$4,'Atendimento iniciado')", connection, transaction))
+        {
+            history.Parameters.AddWithValue(groupId);
+            history.Parameters.AddWithValue(request.AppointmentId);
+            history.Parameters.AddWithValue(appointmentStatus);
+            history.Parameters.AddWithValue(userId);
+            await history.ExecuteNonQueryAsync(ct);
         }
 
         await RecalculateTotalsAsync(connection, transaction, groupId, sessionId, ct);
