@@ -41,7 +41,7 @@ public sealed class ServiceSessionService(IConfiguration configuration)
             appointmentStatus = reader.GetString(4);
         }
 
-        if (appointmentStatus is "FINISHED" or "CANCELLED" or "NO_SHOW" or "RESCHEDULED" or "IN_SERVICE")
+        if (appointmentStatus is not ("CONFIRMED" or "WAITING"))
             throw new InvalidOperationException("APPOINTMENT_NOT_OPENABLE");
 
         await using (var actor = new NpgsqlCommand("SELECT 1 FROM bck_user WHERE id=$1 AND group_id=$2 AND active=true", connection, transaction))
