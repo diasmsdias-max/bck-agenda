@@ -22,6 +22,11 @@ BEGIN
         RAISE EXCEPTION 'EP06 timing function does not cover the full lifecycle';
     END IF;
 
+    IF position('IF NEW.status = ''IN_SERVICE'' THEN' in fn_definition) = 0
+       OR position('NEW.arrived_at := now()' in fn_definition) = 0 THEN
+        RAISE EXCEPTION 'EP06 direct IN_SERVICE transition must capture arrival';
+    END IF;
+
     IF NOT EXISTS (
         SELECT 1
           FROM pg_trigger
