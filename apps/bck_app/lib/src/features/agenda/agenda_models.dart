@@ -17,11 +17,18 @@ enum AgendaStatus {
   final IconData icon;
 
   static AgendaStatus fromApi(String value) {
-    final normalized = value.trim().toLowerCase();
-    return AgendaStatus.values.firstWhere(
-      (status) => status.label.toLowerCase() == normalized,
-      orElse: () => AgendaStatus.scheduled,
-    );
+    final normalized = value.trim().toUpperCase();
+    return switch (normalized) {
+      'SCHEDULED' => AgendaStatus.scheduled,
+      'CONFIRMED' => AgendaStatus.confirmed,
+      'WAITING' => AgendaStatus.waiting,
+      'IN_SERVICE' => AgendaStatus.inService,
+      'FINISHED' || 'COMPLETED' => AgendaStatus.finished,
+      'CANCELLED' || 'CANCELED' => AgendaStatus.cancelled,
+      'NO_SHOW' => AgendaStatus.noShow,
+      'RESCHEDULED' => AgendaStatus.rescheduled,
+      _ => AgendaStatus.scheduled,
+    };
   }
 }
 

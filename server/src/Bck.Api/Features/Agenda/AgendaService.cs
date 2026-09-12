@@ -7,7 +7,12 @@ public sealed record ClientSummary(Guid Id, string Name, string Phone, bool What
 public sealed record CreateServiceRequest(Guid GroupId, string Name, decimal StandardPrice, int StandardDurationMinutes, string? Description = null);
 public sealed record ServiceSummary(Guid Id, string Name, decimal StandardPrice, int StandardDurationMinutes);
 public sealed record CreateAppointmentRequest(Guid GroupId, Guid ProfessionalUserId, Guid CreatedByUserId, Guid? ClientId, string? WalkInName, string? WalkInPhone, DateTimeOffset StartsAt, int DurationMinutes, Guid ServiceId, bool IsFitIn = false, string? Notes = null, bool ForceConflict = false);
-public sealed record AppointmentSummary(Guid Id, Guid ProfessionalUserId, Guid? ClientId, string ClientName, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status, bool IsFitIn);
+public sealed record AppointmentSummary(Guid Id, Guid ProfessionalUserId, Guid? ClientId, string ClientName, DateTimeOffset StartsAt, DateTimeOffset EndsAt, string Status, bool IsFitIn, DateTimeOffset? ArrivedAt = null, DateTimeOffset? ServiceStartedAt = null, DateTimeOffset? ServiceFinishedAt = null)
+{
+    public int? ActualDurationMinutes => ServiceStartedAt is not null && ServiceFinishedAt is not null
+        ? Math.Max(0, (int)Math.Round((ServiceFinishedAt.Value - ServiceStartedAt.Value).TotalMinutes))
+        : null;
+}
 public sealed record AvailabilityResponse(bool Available, IReadOnlyList<AppointmentSummary> Conflicts);
 public sealed record ChangeAppointmentStatusRequest(string Status, string? Reason = null);
 public sealed record RescheduleAppointmentRequest(Guid ProfessionalUserId, DateTimeOffset StartsAt, int DurationMinutes, string? Reason = null, bool ForceConflict = false);
@@ -122,8 +127,8 @@ public sealed class AgendaService(IConfiguration configuration)
     private static async Task<List<AppointmentSummary>> FindAppointmentsAsync(NpgsqlConnection connection, NpgsqlTransaction? transaction, Guid groupId, Guid professionalUserId, DateTimeOffset from, DateTimeOffset to, bool overlap, CancellationToken ct)
     {
         var timeClause = overlap ? "a.starts_at < $4 AND a.ends_at > $3" : "a.starts_at >= $3 AND a.starts_at < $4";
-        var sql = $"SELECT a.id,a.professional_user_id,a.client_id,COALESCE(c.name,a.walk_in_name,'Cliente'),a.starts_at,a.ends_at,a.status,a.is_fit_in FROM appointment a LEFT JOIN client c ON c.id=a.client_id AND c.group_id=a.group_id WHERE a.group_id=$1 AND a.professional_user_id=$2 AND a.status NOT IN ('CANCELLED','RESCHEDULED') AND {timeClause} ORDER BY a.starts_at";
+        var sql = $"SELECT a.id,a.professional_user_id,a.client_id,COALESCE(c.name,a.walk_in_name,'Cliente'),a.starts_at,a.ends_at,a.status,a.is_fit_in,a.arrived_at,a.service_started_at,a.service_finished_at FROM appointment a LEFT JOIN client c ON c.id=a.client_id AND c.group_id=a.group_id WHERE a.group_id=$1 AND a.professional_user_id=$2 AND a.status NOT IN ('CANCELLED','RESCHEDULED') AND {timeClause} ORDER BY a.starts_at";
         await using var command = new NpgsqlCommand(sql, connection, transaction); command.Parameters.AddWithValue(groupId); command.Parameters.AddWithValue(professionalUserId); command.Parameters.AddWithValue(from); command.Parameters.AddWithValue(to);
-        await using var reader = await command.ExecuteReaderAsync(ct); var result = new List<AppointmentSummary>(); while(await reader.ReadAsync(ct)) result.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.IsDBNull(2)?null:reader.GetGuid(2),reader.GetString(3),reader.GetFieldValue<DateTimeOffset>(4),reader.GetFieldValue<DateTimeOffset>(5),reader.GetString(6),reader.GetBoolean(7))); return result;
+        await using var reader = await command.ExecuteReaderAsync(ct); var result = new List<AppointmentSummary>(); while(await reader.ReadAsync(ct)) result.Add(new(reader.GetGuid(0),reader.GetGuid(1),reader.IsDBNull(2)?null:reader.GetGuid(2),reader.GetString(3),reader.GetFieldValue<DateTimeOffset>(4),reader.GetFieldValue<DateTimeOffset>(5),reader.GetString(6),reader.GetBoolean(7),reader.IsDBNull(8)?null:reader.GetFieldValue<DateTimeOffset>(8),reader.IsDBNull(9)?null:reader.GetFieldValue<DateTimeOffset>(9),reader.IsDBNull(10)?null:reader.GetFieldValue<DateTimeOffset>(10))); return result;
     }
 }
