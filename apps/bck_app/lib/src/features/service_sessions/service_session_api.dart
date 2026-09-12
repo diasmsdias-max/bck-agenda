@@ -39,6 +39,19 @@ class ServiceSessionApi {
     return ServiceSession.fromJson(response.data!);
   }
 
+  Future<ServiceSession?> getByAppointment(String appointmentId) async {
+    try {
+      final response = await _dio.get<Map<String, dynamic>>(
+        '/api/v1/appointments/$appointmentId/service-session',
+        options: _authorized,
+      );
+      return ServiceSession.fromJson(response.data!);
+    } on DioException catch (error) {
+      if (error.response?.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   Future<ServiceSessionItem> addItem(
     String sessionId, {
     required String itemType,
