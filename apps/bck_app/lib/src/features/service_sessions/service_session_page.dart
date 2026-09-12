@@ -22,7 +22,7 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _open());
+    WidgetsBinding.instance.addPostFrameCallback((_) => _openOrResume());
   }
 
   Future<T?> _busy<T>(Future<T> Function() action) async {
@@ -31,8 +31,14 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
     finally { if (mounted) setState(() => _loading = false); }
   }
 
-  Future<void> _open() async {
+  Future<void> _openOrResume() async {
     if (_loading || _session != null) return;
+    final existing = await _busy(() => widget.api.getByAppointment(widget.appointmentId));
+    if (!mounted || _session != null) return;
+    if (existing != null) {
+      setState(() => _session = existing);
+      return;
+    }
     final value = await _busy(() => widget.api.open(appointmentId: widget.appointmentId));
     if (mounted && value != null) setState(() { _session = value; _changed = true; });
   }
@@ -77,7 +83,7 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
           const SizedBox(height: 6), Text('Agendamento ${widget.appointmentId}', style: Theme.of(context).textTheme.bodySmall), const SizedBox(height: 20),
           if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('Não foi possível concluir a operação.\n$_error'))),
           if (session == null)
-            FilledButton.icon(onPressed: _loading ? null : _open, icon: const Icon(Icons.play_arrow_rounded), label: Text(_loading ? 'Abrindo atendimento...' : 'Tentar abrir atendimento novamente'))
+            FilledButton.icon(onPressed: _loading ? null : _openOrResume, icon: const Icon(Icons.play_arrow_rounded), label: Text(_loading ? 'Carregando atendimento...' : 'Tentar carregar atendimento novamente'))
           else ...[
             Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Text('Resumo', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
