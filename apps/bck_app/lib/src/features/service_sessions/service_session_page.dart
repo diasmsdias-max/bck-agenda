@@ -15,8 +15,15 @@ class ServiceSessionPage extends StatefulWidget {
 class _ServiceSessionPageState extends State<ServiceSessionPage> {
   ServiceSession? _session;
   bool _loading = false;
+  bool _changed = false;
   Object? _error;
   String _money(double value) => 'R\$ ${value.toStringAsFixed(2).replaceAll('.', ',')}';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _open());
+  }
 
   Future<T?> _busy<T>(Future<T> Function() action) async {
     setState(() { _loading = true; _error = null; });
@@ -25,8 +32,9 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
   }
 
   Future<void> _open() async {
+    if (_loading || _session != null) return;
     final value = await _busy(() => widget.api.open(appointmentId: widget.appointmentId));
-    if (mounted && value != null) setState(() => _session = value);
+    if (mounted && value != null) setState(() { _session = value; _changed = true; });
   }
 
   Future<void> _refresh() async {
@@ -40,7 +48,7 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
     final draft = await showDialog<ServiceSessionItemDraft>(context: context, builder: (_) => const AddServiceSessionItemDialog());
     if (draft == null) return;
     final item = await _busy(() => widget.api.addItem(session.id, itemType: 'PRODUCT', name: draft.name, quantity: draft.quantity, unitPrice: draft.unitPrice, discountAmount: draft.discountAmount));
-    if (item != null) await _refresh();
+    if (item != null) { _changed = true; await _refresh(); }
   }
 
   Future<void> _finish() async {
@@ -52,33 +60,41 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
     ));
     if (confirmed != true) return;
     final value = await _busy(() => widget.api.finish(session.id));
-    if (mounted && value != null) setState(() => _session = value);
+    if (mounted && value != null) setState(() { _session = value; _changed = true; });
+  }
+
+  Future<bool> _onWillPop() async {
+    Navigator.of(context).pop(_changed);
+    return false;
   }
 
   @override Widget build(BuildContext context) {
     final session = _session;
-    return Scaffold(
-      appBar: AppBar(title: const Text('Atendimento'), actions: [if (session != null) IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh))]),
-      body: ListView(padding: const EdgeInsets.all(16), children: [
-        Text(widget.clientName, style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 6), Text('Agendamento ${widget.appointmentId}', style: Theme.of(context).textTheme.bodySmall), const SizedBox(height: 20),
-        if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('Não foi possível concluir a operação.\n$_error'))),
-        if (session == null)
-          FilledButton.icon(onPressed: _loading ? null : _open, icon: const Icon(Icons.play_arrow_rounded), label: Text(_loading ? 'Abrindo...' : 'Abrir atendimento'))
-        else ...[
-          Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-            Text('Resumo', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
-            Text('Subtotal: ${_money(session.subtotal)}'), Text('Descontos: ${_money(session.discountTotal)}'), const Divider(), Text('Total: ${_money(session.total)}', style: Theme.of(context).textTheme.titleLarge),
-          ]))),
-          const SizedBox(height: 12),
-          if (!session.isClosed) ...[
-            FilledButton.tonalIcon(onPressed: _loading ? null : _addItem, icon: const Icon(Icons.add_shopping_cart), label: const Text('Adicionar serviço/produto')),
-            const SizedBox(height: 8),
-            OutlinedButton.icon(onPressed: _loading ? null : _finish, icon: const Icon(Icons.check_circle_outline), label: const Text('Finalizar atendimento')),
-          ] else const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Atendimento finalizado e preparado para recebimento.'))),
-        ],
-        if (_loading) const Padding(padding: EdgeInsets.only(top: 16), child: LinearProgressIndicator()),
-      ]),
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(title: const Text('Atendimento'), actions: [if (session != null) IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh))]),
+        body: ListView(padding: const EdgeInsets.all(16), children: [
+          Text(widget.clientName, style: Theme.of(context).textTheme.headlineSmall),
+          const SizedBox(height: 6), Text('Agendamento ${widget.appointmentId}', style: Theme.of(context).textTheme.bodySmall), const SizedBox(height: 20),
+          if (_error != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('Não foi possível concluir a operação.\n$_error'))),
+          if (session == null)
+            FilledButton.icon(onPressed: _loading ? null : _open, icon: const Icon(Icons.play_arrow_rounded), label: Text(_loading ? 'Abrindo atendimento...' : 'Tentar abrir atendimento novamente'))
+          else ...[
+            Card(child: Padding(padding: const EdgeInsets.all(16), child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Text('Resumo', style: Theme.of(context).textTheme.titleMedium), const SizedBox(height: 12),
+              Text('Subtotal: ${_money(session.subtotal)}'), Text('Descontos: ${_money(session.discountTotal)}'), const Divider(), Text('Total: ${_money(session.total)}', style: Theme.of(context).textTheme.titleLarge),
+            ]))),
+            const SizedBox(height: 12),
+            if (!session.isClosed) ...[
+              FilledButton.tonalIcon(onPressed: _loading ? null : _addItem, icon: const Icon(Icons.add_shopping_cart), label: const Text('Adicionar serviço/produto')),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(onPressed: _loading ? null : _finish, icon: const Icon(Icons.check_circle_outline), label: const Text('Finalizar atendimento')),
+            ] else const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Atendimento finalizado e preparado para recebimento.'))),
+          ],
+          if (_loading) const Padding(padding: EdgeInsets.only(top: 16), child: LinearProgressIndicator()),
+        ]),
+      ),
     );
   }
 }
