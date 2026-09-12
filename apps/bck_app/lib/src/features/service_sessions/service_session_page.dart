@@ -63,15 +63,13 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
     if (mounted && value != null) setState(() { _session = value; _changed = true; });
   }
 
-  Future<bool> _onWillPop() async {
-    Navigator.of(context).pop(_changed);
-    return false;
-  }
-
   @override Widget build(BuildContext context) {
     final session = _session;
-    return WillPopScope(
-      onWillPop: _onWillPop,
+    return PopScope<bool>(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) Navigator.of(context).pop(_changed);
+      },
       child: Scaffold(
         appBar: AppBar(title: const Text('Atendimento'), actions: [if (session != null) IconButton(onPressed: _loading ? null : _refresh, icon: const Icon(Icons.refresh))]),
         body: ListView(padding: const EdgeInsets.all(16), children: [
