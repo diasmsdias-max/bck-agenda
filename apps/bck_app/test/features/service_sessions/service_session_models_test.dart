@@ -1,4 +1,4 @@
-import 'package:bck_app/src/features/service_sessions/service_session_models.dart';
+import 'package:bck_agenda/src/features/service_sessions/service_session_models.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
