@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
-  testWidgets('shows operational entry point for an appointment', (tester) async {
+  testWidgets('opens operational attendance automatically for an appointment', (tester) async {
     final api = ServiceSessionApi(dio: Dio(BaseOptions(baseUrl: 'http://localhost')));
 
     await tester.pumpWidget(MaterialApp(
@@ -18,6 +18,10 @@ void main() {
 
     expect(find.text('Atendimento'), findsOneWidget);
     expect(find.text('Cliente Teste'), findsOneWidget);
-    expect(find.text('Abrir atendimento'), findsOneWidget);
+
+    await tester.pump();
+
+    expect(find.text('Abrir atendimento'), findsNothing);
+    expect(find.textContaining('Abrindo atendimento'), findsOneWidget);
   });
 }
