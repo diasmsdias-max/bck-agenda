@@ -10,8 +10,13 @@ BEGIN
             NEW.arrived_at := now();
         END IF;
 
-        IF NEW.status = 'IN_SERVICE' AND NEW.service_started_at IS NULL THEN
-            NEW.service_started_at := now();
+        IF NEW.status = 'IN_SERVICE' THEN
+            IF NEW.arrived_at IS NULL THEN
+                NEW.arrived_at := now();
+            END IF;
+            IF NEW.service_started_at IS NULL THEN
+                NEW.service_started_at := now();
+            END IF;
         END IF;
 
         IF NEW.status = 'FINISHED' AND NEW.service_finished_at IS NULL THEN
