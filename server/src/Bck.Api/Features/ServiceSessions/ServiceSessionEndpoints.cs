@@ -14,12 +14,14 @@ public static class ServiceSessionEndpoints
         return api;
     }
 
-    private static async Task<IResult> OpenAsync(OpenServiceSessionRequest request, ClaimsPrincipal user, ServiceSessionService service, CancellationToken ct)
+    private static async Task<IResult> OpenAsync(OpenServiceSessionRequest request, ClaimsPrincipal user, ServiceSessionService service, IConfiguration configuration, CancellationToken ct)
     {
         try
         {
+            var professionalId = await AppointmentProfessionalAsync(request.AppointmentId, GroupId(user), configuration, ct);
+            if (professionalId is null) return Results.NotFound();
+            if (!CanAccess(user, professionalId.Value)) return Results.Forbid();
             var result = await service.OpenAsync(GroupId(user), UserId(user), request, ct);
-            if (!IsAdmin(user) && result.ProfessionalUserId != UserId(user)) return Results.Forbid();
             return Results.Created($"/api/v1/service-sessions/{result.Id}", result);
         }
         catch (KeyNotFoundException) { return Results.NotFound(); }
@@ -64,13 +66,22 @@ public static class ServiceSessionEndpoints
     private static bool IsAdmin(ClaimsPrincipal user) => string.Equals(user.FindFirstValue("profile"), "ADMIN", StringComparison.OrdinalIgnoreCase);
     private static Guid GroupId(ClaimsPrincipal user) => Guid.Parse(user.FindFirstValue("group_id") ?? throw new UnauthorizedAccessException());
     private static Guid UserId(ClaimsPrincipal user) => Guid.Parse(user.FindFirstValue(ClaimTypes.NameIdentifier) ?? user.FindFirstValue("sub") ?? throw new UnauthorizedAccessException());
+    private static string ConnectionString(IConfiguration configuration) => configuration.GetConnectionString("Postgres") ?? Environment.GetEnvironmentVariable("BCK_POSTGRES_CONNECTION") ?? throw new InvalidOperationException("PostgreSQL connection is not configured.");
+
+    private static async Task<Guid?> AppointmentProfessionalAsync(Guid appointmentId, Guid groupId, IConfiguration configuration, CancellationToken ct)
+    {
+        await using var connection = new NpgsqlConnection(ConnectionString(configuration)); await connection.OpenAsync(ct);
+        await using var command = new NpgsqlCommand("SELECT professional_user_id FROM appointment WHERE id=$1 AND group_id=$2", connection);
+        command.Parameters.AddWithValue(appointmentId); command.Parameters.AddWithValue(groupId);
+        var value = await command.ExecuteScalarAsync(ct);
+        return value is Guid id ? id : null;
+    }
 
     private static async Task<bool> CanDiscountAsync(ClaimsPrincipal user, IConfiguration configuration, CancellationToken ct)
     {
         if (IsAdmin(user)) return true;
-        var connectionString = configuration.GetConnectionString("Postgres") ?? Environment.GetEnvironmentVariable("BCK_POSTGRES_CONNECTION") ?? throw new InvalidOperationException("PostgreSQL connection is not configured.");
-        await using var connection = new NpgsqlConnection(connectionString); await connection.OpenAsync(ct);
-        const string sql = "SELECT EXISTS(SELECT 1 FROM user_permission up JOIN permission p ON p.id=up.permission_id JOIN bck_user bu ON bu.id=up.user_id WHERE up.user_id=$1 AND bu.group_id=$2 AND bu.active=true AND up.granted=true AND p.code='ALLOW_PRICE_CHANGE')";
+        await using var connection = new NpgsqlConnection(ConnectionString(configuration)); await connection.OpenAsync(ct);
+        const string sql = "SELECT EXISTS(SELECT 1 FROM user_permission up JOIN permission p ON p.id=up.permission_id JOIN bck_user bu ON bu.id=up.user_id WHERE up.user_id=$1 AND bu.group_id=$2 AND bu.active=true AND up.granted=true AND p.code='ALLOW_PRICE_OVERRIDE')";
         await using var command = new NpgsqlCommand(sql, connection); command.Parameters.AddWithValue(UserId(user)); command.Parameters.AddWithValue(GroupId(user));
         return (bool)(await command.ExecuteScalarAsync(ct))!;
     }
