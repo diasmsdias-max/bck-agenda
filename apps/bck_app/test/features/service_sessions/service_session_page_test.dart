@@ -11,14 +11,18 @@ class _FakeServiceSessionApi extends ServiceSessionApi {
   final Object? lookupError;
   bool lookupCalled = false;
   bool openCalled = false;
+  bool updateNotesCalled = false;
+  String? savedNotes;
   @override
   Future<ServiceSession?> getByAppointment(String appointmentId) async { lookupCalled = true; if (lookupError != null) throw lookupError!; return existing; }
   @override
   Future<ServiceSession> open({required String appointmentId, String? notes, String? idempotencyKey}) async { openCalled = true; return _session(appointmentId: appointmentId); }
+  @override
+  Future<ServiceSession> updateNotes(String id, String? notes) async { updateNotesCalled = true; savedNotes = notes; return _session(notes: notes); }
 }
 
-ServiceSession _session({String appointmentId = 'appointment-1', ServiceSessionStatus status = ServiceSessionStatus.open, DateTime? arrivedAt, DateTime? serviceStartedAt, DateTime? serviceFinishedAt, int? effectiveDurationMinutes}) => ServiceSession(
-  id: 'session-1', appointmentId: appointmentId, professionalUserId: 'professional-1', clientName: 'Cliente Teste', status: status,
+ServiceSession _session({String appointmentId = 'appointment-1', ServiceSessionStatus status = ServiceSessionStatus.open, String? notes, DateTime? arrivedAt, DateTime? serviceStartedAt, DateTime? serviceFinishedAt, int? effectiveDurationMinutes}) => ServiceSession(
+  id: 'session-1', appointmentId: appointmentId, professionalUserId: 'professional-1', clientName: 'Cliente Teste', status: status, notes: notes,
   subtotal: 0, discountTotal: 0, total: 0, createdAt: DateTime(2026, 9, 12), arrivedAt: arrivedAt, serviceStartedAt: serviceStartedAt,
   serviceFinishedAt: serviceFinishedAt, effectiveDurationMinutes: effectiveDurationMinutes,
 );
@@ -38,6 +42,31 @@ void main() {
     expect(api.lookupCalled, isTrue); expect(api.openCalled, isFalse); expect(find.text('Resumo'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Finalizar atendimento'), 200);
     expect(find.text('Finalizar atendimento'), findsOneWidget);
+  });
+
+  testWidgets('edits and saves notes while attendance is open', (tester) async {
+    final api = _FakeServiceSessionApi(existing: _session(notes: 'Observação inicial'));
+    await tester.pumpWidget(MaterialApp(home: ServiceSessionPage(api: api, appointmentId: 'appointment-1', clientName: 'Cliente Teste')));
+    await tester.pump(); await tester.pump();
+    expect(find.text('Observação inicial'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('edit-attendance-notes')));
+    await tester.pumpAndSettle();
+    final field = find.byKey(const Key('attendance-notes-field'));
+    expect(field, findsOneWidget);
+    await tester.enterText(field, 'Cliente solicitou acabamento especial');
+    await tester.tap(find.text('Salvar'));
+    await tester.pumpAndSettle();
+    expect(api.updateNotesCalled, isTrue);
+    expect(api.savedNotes, 'Cliente solicitou acabamento especial');
+    expect(find.text('Cliente solicitou acabamento especial'), findsOneWidget);
+  });
+
+  testWidgets('keeps finished attendance notes read only', (tester) async {
+    final api = _FakeServiceSessionApi(existing: _session(status: ServiceSessionStatus.finished, notes: 'Registro preservado'));
+    await tester.pumpWidget(MaterialApp(home: ServiceSessionPage(api: api, appointmentId: 'appointment-1', clientName: 'Cliente Teste')));
+    await tester.pump(); await tester.pump();
+    expect(find.text('Registro preservado'), findsOneWidget);
+    expect(find.byKey(const Key('edit-attendance-notes')), findsNothing);
   });
 
   testWidgets('shows effective duration from persisted actual timing', (tester) async {
