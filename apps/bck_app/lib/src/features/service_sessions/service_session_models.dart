@@ -22,6 +22,10 @@ class ServiceSession {
     this.clientPhone,
     this.notes,
     this.finishedAt,
+    this.arrivedAt,
+    this.serviceStartedAt,
+    this.serviceFinishedAt,
+    this.effectiveDurationMinutes,
   });
 
   final String id;
@@ -37,6 +41,10 @@ class ServiceSession {
   final double total;
   final DateTime createdAt;
   final DateTime? finishedAt;
+  final DateTime? arrivedAt;
+  final DateTime? serviceStartedAt;
+  final DateTime? serviceFinishedAt;
+  final int? effectiveDurationMinutes;
 
   bool get isClosed => status == ServiceSessionStatus.finished || status == ServiceSessionStatus.cancelled;
 
@@ -54,6 +62,10 @@ class ServiceSession {
         total: (json['total'] as num).toDouble(),
         createdAt: DateTime.parse(json['createdAt'] as String),
         finishedAt: json['finishedAt'] == null ? null : DateTime.parse(json['finishedAt'] as String),
+        arrivedAt: json['arrivedAt'] == null ? null : DateTime.parse(json['arrivedAt'] as String),
+        serviceStartedAt: json['serviceStartedAt'] == null ? null : DateTime.parse(json['serviceStartedAt'] as String),
+        serviceFinishedAt: json['serviceFinishedAt'] == null ? null : DateTime.parse(json['serviceFinishedAt'] as String),
+        effectiveDurationMinutes: (json['effectiveDurationMinutes'] as num?)?.toInt(),
       );
 }
 
