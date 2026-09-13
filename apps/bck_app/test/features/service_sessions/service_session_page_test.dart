@@ -167,4 +167,47 @@ void main() {
       expect(routeResult, isTrue);
     },
   );
+
+  testWidgets(
+    'returns changed true when Android system back exits attendance',
+    (tester) async {
+      final api = _FakeServiceSessionApi();
+      bool? routeResult;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: FilledButton(
+                onPressed: () async {
+                  routeResult = await Navigator.of(context).push<bool>(
+                    MaterialPageRoute(
+                      builder: (_) => ServiceSessionPage(
+                        api: api,
+                        appointmentId: 'appointment-1',
+                        clientName: 'Cliente Teste',
+                      ),
+                    ),
+                  );
+                },
+                child: const Text('Abrir atendimento'),
+              ),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('Abrir atendimento'));
+      await tester.pumpAndSettle();
+
+      expect(api.openCalled, isTrue);
+      expect(find.text('Resumo'), findsOneWidget);
+
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+
+      expect(find.text('Abrir atendimento'), findsOneWidget);
+      expect(routeResult, isTrue);
+    },
+  );
 }
