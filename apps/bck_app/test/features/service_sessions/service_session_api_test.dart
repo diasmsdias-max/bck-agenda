@@ -28,6 +28,42 @@ void main() {
       expect(request.headers['Authorization'], 'Bearer access-token');
     }
   });
+
+  test('sends idempotency key only on mutable commands and preserves explicit key', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio();
+    dio.httpClientAdapter = _RecordingAdapter(requests);
+    final api = ServiceSessionApi(dio: dio)..setAccessToken('access-token');
+
+    await api.getByAppointment('appointment-1');
+    await api.get('session-1');
+    await api.open(appointmentId: 'appointment-1', idempotencyKey: 'open-key-123');
+    await api.addItem(
+      'session-1',
+      itemType: 'PRODUCT',
+      name: 'Produto extra',
+      quantity: 1,
+      unitPrice: 10,
+      idempotencyKey: 'item-key-123',
+    );
+    await api.finish('session-1', idempotencyKey: 'finish-key-123');
+
+    expect(requests[0].headers['Idempotency-Key'], isNull);
+    expect(requests[1].headers['Idempotency-Key'], isNull);
+    expect(requests[2].headers['Idempotency-Key'], 'open-key-123');
+    expect(requests[3].headers['Idempotency-Key'], 'item-key-123');
+    expect(requests[4].headers['Idempotency-Key'], 'finish-key-123');
+  });
+
+  test('generates valid distinct idempotency keys', () {
+    final api = ServiceSessionApi(dio: Dio());
+    final first = api.newIdempotencyKey();
+    final second = api.newIdempotencyKey();
+
+    expect(first.length, inInclusiveRange(8, 128));
+    expect(second.length, inInclusiveRange(8, 128));
+    expect(second, isNot(first));
+  });
 }
 
 class _RecordingAdapter implements HttpClientAdapter {
