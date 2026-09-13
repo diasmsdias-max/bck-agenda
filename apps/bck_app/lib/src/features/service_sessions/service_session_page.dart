@@ -33,14 +33,27 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
 
   Future<void> _openOrResume() async {
     if (_loading || _session != null) return;
-    final existing = await _busy(() => widget.api.getByAppointment(widget.appointmentId));
-    if (!mounted || _session != null) return;
-    if (existing != null) {
-      setState(() => _session = existing);
-      return;
+    setState(() { _loading = true; _error = null; });
+    try {
+      final existing = await widget.api.getByAppointment(widget.appointmentId);
+      if (!mounted || _session != null) return;
+      if (existing != null) {
+        setState(() => _session = existing);
+        return;
+      }
+
+      final opened = await widget.api.open(appointmentId: widget.appointmentId);
+      if (mounted) {
+        setState(() {
+          _session = opened;
+          _changed = true;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
     }
-    final value = await _busy(() => widget.api.open(appointmentId: widget.appointmentId));
-    if (mounted && value != null) setState(() { _session = value; _changed = true; });
   }
 
   Future<void> _refresh() async {
