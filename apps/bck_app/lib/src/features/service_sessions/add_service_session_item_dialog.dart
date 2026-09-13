@@ -43,10 +43,10 @@ class _AddServiceSessionItemDialogState extends State<AddServiceSessionItemDialo
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Adicionar item'),
+        title: const Text('Adicionar produto/item extra'),
         content: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            TextField(controller: _name, decoration: const InputDecoration(labelText: 'Descrição')),
+            TextField(controller: _name, decoration: const InputDecoration(labelText: 'Descrição do produto/item')),
             TextField(controller: _quantity, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Quantidade')),
             TextField(controller: _price, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Valor unitário')),
             TextField(controller: _discount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Desconto')),
