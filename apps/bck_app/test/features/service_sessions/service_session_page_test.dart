@@ -6,14 +6,26 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeServiceSessionApi extends ServiceSessionApi {
-  _FakeServiceSessionApi() : super(dio: Dio());
+  _FakeServiceSessionApi({this.existing}) : super(dio: Dio());
 
+  final ServiceSession? existing;
+  bool lookupCalled = false;
   bool openCalled = false;
+
+  @override
+  Future<ServiceSession?> getByAppointment(String appointmentId) async {
+    lookupCalled = true;
+    return existing;
+  }
 
   @override
   Future<ServiceSession> open({required String appointmentId, String? notes}) async {
     openCalled = true;
-    return ServiceSession(
+    return _session(appointmentId: appointmentId);
+  }
+}
+
+ServiceSession _session({String appointmentId = 'appointment-1'}) => ServiceSession(
       id: 'session-1',
       appointmentId: appointmentId,
       professionalUserId: 'professional-1',
@@ -24,11 +36,9 @@ class _FakeServiceSessionApi extends ServiceSessionApi {
       total: 0,
       createdAt: DateTime(2026, 9, 12),
     );
-  }
-}
 
 void main() {
-  testWidgets('opens operational attendance automatically for an appointment', (tester) async {
+  testWidgets('opens operational attendance when appointment has no session', (tester) async {
     final api = _FakeServiceSessionApi();
 
     await tester.pumpWidget(MaterialApp(
@@ -39,11 +49,31 @@ void main() {
       ),
     ));
     await tester.pump();
+    await tester.pump();
 
     expect(find.text('Atendimento'), findsOneWidget);
     expect(find.text('Cliente Teste'), findsOneWidget);
+    expect(api.lookupCalled, isTrue);
     expect(api.openCalled, isTrue);
-    expect(find.text('Abrir atendimento'), findsNothing);
     expect(find.text('Resumo'), findsOneWidget);
+  });
+
+  testWidgets('resumes existing operational attendance without opening another session', (tester) async {
+    final api = _FakeServiceSessionApi(existing: _session());
+
+    await tester.pumpWidget(MaterialApp(
+      home: ServiceSessionPage(
+        api: api,
+        appointmentId: 'appointment-1',
+        clientName: 'Cliente Teste',
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.lookupCalled, isTrue);
+    expect(api.openCalled, isFalse);
+    expect(find.text('Resumo'), findsOneWidget);
+    expect(find.text('Finalizar atendimento'), findsOneWidget);
   });
 }
