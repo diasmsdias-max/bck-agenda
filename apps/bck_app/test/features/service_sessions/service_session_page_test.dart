@@ -35,21 +35,27 @@ void main() {
     final api = _FakeServiceSessionApi(existing: _session());
     await tester.pumpWidget(MaterialApp(home: ServiceSessionPage(api: api, appointmentId: 'appointment-1', clientName: 'Cliente Teste')));
     await tester.pump(); await tester.pump();
-    expect(api.lookupCalled, isTrue); expect(api.openCalled, isFalse); expect(find.text('Resumo'), findsOneWidget); expect(find.text('Finalizar atendimento'), findsOneWidget);
+    expect(api.lookupCalled, isTrue); expect(api.openCalled, isFalse); expect(find.text('Resumo'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Finalizar atendimento'), 200);
+    expect(find.text('Finalizar atendimento'), findsOneWidget);
   });
 
   testWidgets('shows effective duration from persisted actual timing', (tester) async {
     final api = _FakeServiceSessionApi(existing: _session(status: ServiceSessionStatus.finished, arrivedAt: DateTime.utc(2026, 9, 12, 11, 55), serviceStartedAt: DateTime.utc(2026, 9, 12, 12, 5), serviceFinishedAt: DateTime.utc(2026, 9, 12, 12, 42), effectiveDurationMinutes: 37));
     await tester.pumpWidget(MaterialApp(home: ServiceSessionPage(api: api, appointmentId: 'appointment-1', clientName: 'Cliente Teste')));
     await tester.pump(); await tester.pump();
-    expect(find.text('Tempo real'), findsOneWidget); expect(find.byKey(const Key('effective-duration')), findsOneWidget); expect(find.text('37 min'), findsOneWidget); expect(find.text('Atendimento finalizado e preparado para recebimento.'), findsOneWidget);
+    expect(find.text('Tempo real'), findsOneWidget); expect(find.byKey(const Key('effective-duration')), findsOneWidget); expect(find.text('37 min'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Atendimento finalizado e preparado para recebimento.'), 200);
+    expect(find.text('Atendimento finalizado e preparado para recebimento.'), findsOneWidget);
   });
 
   testWidgets('shows attendance as in progress before actual finish exists', (tester) async {
     final api = _FakeServiceSessionApi(existing: _session(status: ServiceSessionStatus.inService, arrivedAt: DateTime.utc(2026, 9, 12, 11, 55), serviceStartedAt: DateTime.utc(2026, 9, 12, 12, 5)));
     await tester.pumpWidget(MaterialApp(home: ServiceSessionPage(api: api, appointmentId: 'appointment-1', clientName: 'Cliente Teste')));
     await tester.pump(); await tester.pump();
-    expect(find.text('Em andamento'), findsOneWidget); expect(find.text('Finalizar atendimento'), findsOneWidget);
+    expect(find.text('Em andamento'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Finalizar atendimento'), 200);
+    expect(find.text('Finalizar atendimento'), findsOneWidget);
   });
 
   testWidgets('does not open another session when resume lookup fails', (tester) async {
