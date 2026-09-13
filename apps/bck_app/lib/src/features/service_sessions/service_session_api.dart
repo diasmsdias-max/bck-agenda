@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:dio/dio.dart';
 
 import '../../core/config/app_config.dart';
@@ -15,18 +17,28 @@ class ServiceSessionApi {
 
   final Dio _dio;
   String? _accessToken;
+  final Random _random = Random.secure();
 
   void setAccessToken(String? token) => _accessToken = token;
 
-  Options get _authorized => Options(
-        headers: _accessToken == null ? null : {'Authorization': 'Bearer $_accessToken'},
+  Options _authorized({String? idempotencyKey}) => Options(
+        headers: {
+          if (_accessToken != null) 'Authorization': 'Bearer $_accessToken',
+          if (idempotencyKey != null) 'Idempotency-Key': idempotencyKey,
+        },
       );
 
-  Future<ServiceSession> open({required String appointmentId, String? notes}) async {
+  String newIdempotencyKey() {
+    final timestamp = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
+    final entropy = List.generate(4, (_) => _random.nextInt(1 << 32).toRadixString(36)).join();
+    return 'bck-$timestamp-$entropy';
+  }
+
+  Future<ServiceSession> open({required String appointmentId, String? notes, String? idempotencyKey}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/service-sessions',
       data: {'appointmentId': appointmentId, 'notes': notes},
-      options: _authorized,
+      options: _authorized(idempotencyKey: idempotencyKey ?? newIdempotencyKey()),
     );
     return ServiceSession.fromJson(response.data!);
   }
@@ -34,7 +46,7 @@ class ServiceSessionApi {
   Future<ServiceSession> get(String id) async {
     final response = await _dio.get<Map<String, dynamic>>(
       '/api/v1/service-sessions/$id',
-      options: _authorized,
+      options: _authorized(),
     );
     return ServiceSession.fromJson(response.data!);
   }
@@ -43,7 +55,7 @@ class ServiceSessionApi {
     try {
       final response = await _dio.get<Map<String, dynamic>>(
         '/api/v1/appointments/$appointmentId/service-session',
-        options: _authorized,
+        options: _authorized(),
       );
       return ServiceSession.fromJson(response.data!);
     } on DioException catch (error) {
@@ -61,6 +73,7 @@ class ServiceSessionApi {
     required double quantity,
     required double unitPrice,
     double discountAmount = 0,
+    String? idempotencyKey,
   }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/service-sessions/$sessionId/items',
@@ -73,16 +86,16 @@ class ServiceSessionApi {
         'unitPrice': unitPrice,
         'discountAmount': discountAmount,
       },
-      options: _authorized,
+      options: _authorized(idempotencyKey: idempotencyKey ?? newIdempotencyKey()),
     );
     return ServiceSessionItem.fromJson(response.data!);
   }
 
-  Future<ServiceSession> finish(String sessionId, {String? notes}) async {
+  Future<ServiceSession> finish(String sessionId, {String? notes, String? idempotencyKey}) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/service-sessions/$sessionId/finish',
       data: {'notes': notes},
-      options: _authorized,
+      options: _authorized(idempotencyKey: idempotencyKey ?? newIdempotencyKey()),
     );
     return ServiceSession.fromJson(response.data!);
   }
