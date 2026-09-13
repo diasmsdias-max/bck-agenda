@@ -6,47 +6,10 @@ namespace Bck.Api.Tests;
 
 public sealed class ServiceSessionIdempotencyTests
 {
-    [Fact]
-    public void RequireKey_RejectsMissingHeader()
-    {
-        var request = new DefaultHttpContext().Request;
-
-        var error = Assert.Throws<ArgumentException>(() => ServiceSessionIdempotency.RequireKey(request));
-
-        Assert.Equal("IDEMPOTENCY_KEY_REQUIRED", error.Message);
-    }
-
-    [Theory]
-    [InlineData("short")]
-    [InlineData("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")]
-    public void RequireKey_RejectsInvalidLength(string value)
-    {
-        var request = new DefaultHttpContext().Request;
-        request.Headers[ServiceSessionIdempotency.HeaderName] = value;
-
-        var error = Assert.Throws<ArgumentException>(() => ServiceSessionIdempotency.RequireKey(request));
-
-        Assert.Equal("IDEMPOTENCY_KEY_INVALID", error.Message);
-    }
-
-    [Fact]
-    public void RequireKey_ReturnsTrimmedValidKey()
-    {
-        var request = new DefaultHttpContext().Request;
-        request.Headers[ServiceSessionIdempotency.HeaderName] = "  operation-123456  ";
-
-        Assert.Equal("operation-123456", ServiceSessionIdempotency.RequireKey(request));
-    }
-
-    [Fact]
-    public void RequestHash_IsStableAndChangesWithPayload()
-    {
-        var first = ServiceSessionIdempotency.RequestHash(new { AppointmentId = "appointment-1", Notes = "A" });
-        var repeated = ServiceSessionIdempotency.RequestHash(new { AppointmentId = "appointment-1", Notes = "A" });
-        var changed = ServiceSessionIdempotency.RequestHash(new { AppointmentId = "appointment-1", Notes = "B" });
-
-        Assert.Equal(64, first.Length);
-        Assert.Equal(first, repeated);
-        Assert.NotEqual(first, changed);
-    }
+    [Fact] public void RequireKey_RejectsMissingHeader(){var request=new DefaultHttpContext().Request;var error=Assert.Throws<ArgumentException>(()=>ServiceSessionIdempotency.RequireKey(request));Assert.Equal("IDEMPOTENCY_KEY_REQUIRED",error.Message);}
+    [Theory][InlineData("short")][InlineData("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx")] public void RequireKey_RejectsInvalidLength(string value){var request=new DefaultHttpContext().Request;request.Headers[ServiceSessionIdempotency.HeaderName]=value;var error=Assert.Throws<ArgumentException>(()=>ServiceSessionIdempotency.RequireKey(request));Assert.Equal("IDEMPOTENCY_KEY_INVALID",error.Message);}
+    [Fact] public void RequireKey_ReturnsTrimmedValidKey(){var request=new DefaultHttpContext().Request;request.Headers[ServiceSessionIdempotency.HeaderName]="  operation-123456  ";Assert.Equal("operation-123456",ServiceSessionIdempotency.RequireKey(request));}
+    [Fact] public void RequestHash_IsStableAndChangesWithPayload(){var first=ServiceSessionIdempotency.RequestHash(new{AppointmentId="appointment-1",Notes="A"});var repeated=ServiceSessionIdempotency.RequestHash(new{AppointmentId="appointment-1",Notes="A"});var changed=ServiceSessionIdempotency.RequestHash(new{AppointmentId="appointment-1",Notes="B"});Assert.Equal(64,first.Length);Assert.Equal(first,repeated);Assert.NotEqual(first,changed);}
+    [Fact] public void RequestHash_ChangesWithSessionIdentity(){var request=new FinishServiceSessionRequest("ok");var first=ServiceSessionIdempotency.RequestHash(new{sessionId=Guid.Parse("11111111-1111-1111-1111-111111111111"),request.Notes});var second=ServiceSessionIdempotency.RequestHash(new{sessionId=Guid.Parse("22222222-2222-2222-2222-222222222222"),request.Notes});Assert.NotEqual(first,second);}
+    [Fact] public void Deserialize_ReplaysStoredResponse(){var expected=new ServiceSessionSummary(Guid.Parse("11111111-1111-1111-1111-111111111111"),Guid.Parse("22222222-2222-2222-2222-222222222222"),Guid.Parse("33333333-3333-3333-3333-333333333333"),null,"Cliente",null,"FINISHED","ok",100m,0m,100m,DateTimeOffset.Parse("2026-09-13T10:00:00Z"),DateTimeOffset.Parse("2026-09-13T10:30:00Z"),DateTimeOffset.Parse("2026-09-13T09:55:00Z"),DateTimeOffset.Parse("2026-09-13T10:00:00Z"),DateTimeOffset.Parse("2026-09-13T10:30:00Z"),30);var json=System.Text.Json.JsonSerializer.Serialize(expected);var actual=ServiceSessionIdempotency.Deserialize<ServiceSessionSummary>(new ServiceSessionIdempotencyReplay(200,json));Assert.Equal(expected,actual);}
 }
