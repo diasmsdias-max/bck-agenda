@@ -72,7 +72,7 @@ class ServiceSessionCommandQueue {
               entityId: row.entityId,
               operation: row.operation,
               payloadJson: row.payloadJson,
-              occurredAt: row.occurredAt,
+              occurredAt: row.occurredAt.toUtc(),
               idempotencyKey: row.idempotencyKey,
             ))
         .toList(growable: false);
