@@ -10,6 +10,7 @@ public static class ServiceSessionEndpoints
         api.MapPost("/service-sessions", OpenAsync);
         api.MapGet("/service-sessions/{id:guid}", GetAsync);
         api.MapGet("/service-sessions/{id:guid}/history", GetHistoryAsync);
+        api.MapPut("/service-sessions/{id:guid}/notes", UpdateNotesAsync);
         api.MapGet("/appointments/{appointmentId:guid}/service-session", GetByAppointmentAsync);
         api.MapPost("/service-sessions/{id:guid}/items", AddItemAsync);
         api.MapPost("/service-sessions/{id:guid}/finish", FinishAsync);
@@ -33,6 +34,15 @@ public static class ServiceSessionEndpoints
         if (!CanAccess(user, current.ProfessionalUserId)) return Results.Forbid();
         var history = await service.GetHistoryAsync(GroupId(user), id, ct);
         return history is null ? Results.NotFound() : Results.Ok(history);
+    }
+
+    private static async Task<IResult> UpdateNotesAsync(Guid id, UpdateServiceSessionNotesRequest request, ClaimsPrincipal user, ServiceSessionService service, CancellationToken ct)
+    {
+        var current = await service.GetAsync(GroupId(user), id, ct);
+        if (current is null) return Results.NotFound();
+        if (!CanAccess(user, current.ProfessionalUserId)) return Results.Forbid();
+        try { return Results.Ok(await service.UpdateNotesAsync(GroupId(user), id, UserId(user), request, ct)); }
+        catch (InvalidOperationException ex) when (ex.Message == "SERVICE_SESSION_CLOSED") { return Results.Conflict(new { code = ex.Message, message = "As observações de um atendimento encerrado não podem ser alteradas." }); }
     }
 
     private static async Task<IResult> GetByAppointmentAsync(Guid appointmentId,ClaimsPrincipal user,ServiceSessionService service,CancellationToken ct){var result=await service.GetByAppointmentAsync(GroupId(user),appointmentId,ct);if(result is null)return Results.NotFound();if(!CanAccess(user,result.ProfessionalUserId))return Results.Forbid();return Results.Ok(result);}
