@@ -94,7 +94,7 @@ public sealed class ServiceSessionService(IConfiguration configuration)
             await seed.ExecuteNonQueryAsync(ct);
         }
 
-        await using (var appointment = new NpgsqlCommand("UPDATE appointment SET status='IN_SERVICE',actual_start_at=COALESCE(actual_start_at,now()),updated_at=now(),version=version+1 WHERE id=$1 AND group_id=$2 AND status=$3", connection, transaction))
+        await using (var appointment = new NpgsqlCommand("UPDATE appointment SET status='IN_SERVICE',updated_at=now(),version=version+1 WHERE id=$1 AND group_id=$2 AND status=$3", connection, transaction))
         {
             appointment.Parameters.AddWithValue(request.AppointmentId);
             appointment.Parameters.AddWithValue(groupId);
