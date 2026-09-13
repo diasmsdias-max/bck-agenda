@@ -202,11 +202,35 @@ public sealed class ServiceSessionService(IConfiguration configuration)
 
     public async Task<ServiceSessionSummary?> GetAsync(Guid groupId, Guid sessionId, CancellationToken ct)
     {
-        await using var connection = new NpgsqlConnection(ConnectionString); await connection.OpenAsync(ct);
-        const string sql = "SELECT id,appointment_id,professional_user_id,client_id,client_name_snapshot,client_phone_snapshot,status,notes,subtotal,discount_total,total,created_at,finished_at FROM service_session WHERE id=$1 AND group_id=$2";
-        await using var command = new NpgsqlCommand(sql, connection); command.Parameters.AddWithValue(sessionId); command.Parameters.AddWithValue(groupId);
-        await using var reader = await command.ExecuteReaderAsync(ct); if (!await reader.ReadAsync(ct)) return null;
-        return new(reader.GetGuid(0),reader.GetGuid(1),reader.GetGuid(2),reader.IsDBNull(3)?null:reader.GetGuid(3),reader.GetString(4),reader.IsDBNull(5)?null:reader.GetString(5),reader.GetString(6),reader.IsDBNull(7)?null:reader.GetString(7),reader.GetDecimal(8),reader.GetDecimal(9),reader.GetDecimal(10),reader.GetFieldValue<DateTimeOffset>(11),reader.IsDBNull(12)?null:reader.GetFieldValue<DateTimeOffset>(12));
+        await using var connection = new NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync(ct);
+        const string sql = """
+            SELECT s.id,s.appointment_id,s.professional_user_id,s.client_id,s.client_name_snapshot,s.client_phone_snapshot,
+                   s.status,s.notes,s.subtotal,s.discount_total,s.total,s.created_at,s.finished_at,
+                   a.arrived_at,a.service_started_at,a.service_finished_at,
+                   CASE
+                     WHEN a.service_started_at IS NOT NULL AND a.service_finished_at IS NOT NULL
+                     THEN GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (a.service_finished_at-a.service_started_at))/60))::int
+                     ELSE NULL
+                   END AS effective_duration_minutes
+              FROM service_session s
+              JOIN appointment a ON a.id=s.appointment_id AND a.group_id=s.group_id
+             WHERE s.id=$1 AND s.group_id=$2
+            """;
+        await using var command = new NpgsqlCommand(sql, connection);
+        command.Parameters.AddWithValue(sessionId);
+        command.Parameters.AddWithValue(groupId);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
+        return new(
+            reader.GetGuid(0),reader.GetGuid(1),reader.GetGuid(2),reader.IsDBNull(3)?null:reader.GetGuid(3),
+            reader.GetString(4),reader.IsDBNull(5)?null:reader.GetString(5),reader.GetString(6),reader.IsDBNull(7)?null:reader.GetString(7),
+            reader.GetDecimal(8),reader.GetDecimal(9),reader.GetDecimal(10),reader.GetFieldValue<DateTimeOffset>(11),
+            reader.IsDBNull(12)?null:reader.GetFieldValue<DateTimeOffset>(12),
+            reader.IsDBNull(13)?null:reader.GetFieldValue<DateTimeOffset>(13),
+            reader.IsDBNull(14)?null:reader.GetFieldValue<DateTimeOffset>(14),
+            reader.IsDBNull(15)?null:reader.GetFieldValue<DateTimeOffset>(15),
+            reader.IsDBNull(16)?null:reader.GetInt32(16));
     }
 
     private static async Task<Guid> EnsureOpenSessionAsync(NpgsqlConnection connection, NpgsqlTransaction transaction, Guid groupId, Guid sessionId, CancellationToken ct)
