@@ -30,11 +30,18 @@ class ServiceSessionApi {
 
   String newIdempotencyKey() {
     final timestamp = DateTime.now().microsecondsSinceEpoch.toRadixString(36);
-    final entropy = List.generate(4, (_) => _random.nextInt(1 << 32).toRadixString(36)).join();
+    final entropy = List.generate(
+      16,
+      (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
     return 'bck-$timestamp-$entropy';
   }
 
-  Future<ServiceSession> open({required String appointmentId, String? notes, String? idempotencyKey}) async {
+  Future<ServiceSession> open({
+    required String appointmentId,
+    String? notes,
+    String? idempotencyKey,
+  }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/service-sessions',
       data: {'appointmentId': appointmentId, 'notes': notes},
@@ -91,7 +98,11 @@ class ServiceSessionApi {
     return ServiceSessionItem.fromJson(response.data!);
   }
 
-  Future<ServiceSession> finish(String sessionId, {String? notes, String? idempotencyKey}) async {
+  Future<ServiceSession> finish(
+    String sessionId, {
+    String? notes,
+    String? idempotencyKey,
+  }) async {
     final response = await _dio.post<Map<String, dynamic>>(
       '/api/v1/service-sessions/$sessionId/finish',
       data: {'notes': notes},
