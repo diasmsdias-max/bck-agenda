@@ -16,12 +16,10 @@ Future<bool?> openServiceSessionFromAgenda(
     baseUrl: AppConfig.apiBaseUrl,
     connectTimeout: const Duration(seconds: 10),
     receiveTimeout: const Duration(seconds: 10),
-    headers: {
-      'Accept': 'application/json',
-      'Authorization': 'Bearer ${session.accessToken}',
-    },
+    headers: const {'Accept': 'application/json'},
   ));
-  final api = ServiceSessionApi(dio: dio);
+  final api = ServiceSessionApi(dio: dio)
+    ..setAccessToken(session.accessToken);
   return Navigator.of(context).push<bool>(MaterialPageRoute(
     builder: (_) => ServiceSessionPage(
       api: api,
