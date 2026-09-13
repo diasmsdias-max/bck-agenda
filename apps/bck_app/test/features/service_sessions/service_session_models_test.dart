@@ -9,7 +9,7 @@ void main() {
     expect(serviceSessionStatusFromApi('CANCELLED'), ServiceSessionStatus.cancelled);
   });
 
-  test('parses consolidated service session totals', () {
+  test('parses consolidated service session totals and actual timing', () {
     final session = ServiceSession.fromJson({
       'id': 'session-1',
       'appointmentId': 'appointment-1',
@@ -24,12 +24,47 @@ void main() {
       'total': 100.0,
       'createdAt': '2026-09-12T12:00:00Z',
       'finishedAt': '2026-09-12T13:00:00Z',
+      'arrivedAt': '2026-09-12T11:55:00Z',
+      'serviceStartedAt': '2026-09-12T12:05:00Z',
+      'serviceFinishedAt': '2026-09-12T12:42:00Z',
+      'effectiveDurationMinutes': 37,
     });
 
     expect(session.total, 100);
     expect(session.discountTotal, 20);
     expect(session.isClosed, isTrue);
     expect(session.finishedAt, isNotNull);
+    expect(session.arrivedAt, DateTime.parse('2026-09-12T11:55:00Z'));
+    expect(session.serviceStartedAt, DateTime.parse('2026-09-12T12:05:00Z'));
+    expect(session.serviceFinishedAt, DateTime.parse('2026-09-12T12:42:00Z'));
+    expect(session.effectiveDurationMinutes, 37);
+  });
+
+  test('accepts open sessions without completed actual timing', () {
+    final session = ServiceSession.fromJson({
+      'id': 'session-open',
+      'appointmentId': 'appointment-open',
+      'professionalUserId': 'professional-1',
+      'clientId': null,
+      'clientName': 'Cliente',
+      'clientPhone': null,
+      'status': 'IN_SERVICE',
+      'notes': null,
+      'subtotal': 0,
+      'discountTotal': 0,
+      'total': 0,
+      'createdAt': '2026-09-12T12:00:00Z',
+      'finishedAt': null,
+      'arrivedAt': '2026-09-12T11:58:00Z',
+      'serviceStartedAt': '2026-09-12T12:00:00Z',
+      'serviceFinishedAt': null,
+      'effectiveDurationMinutes': null,
+    });
+
+    expect(session.isClosed, isFalse);
+    expect(session.serviceStartedAt, isNotNull);
+    expect(session.serviceFinishedAt, isNull);
+    expect(session.effectiveDurationMinutes, isNull);
   });
 
   test('parses item commercial snapshot', () {

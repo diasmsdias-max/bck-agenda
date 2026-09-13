@@ -13,7 +13,11 @@ public sealed record ServiceSessionSummary(
     decimal DiscountTotal,
     decimal Total,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? FinishedAt);
+    DateTimeOffset? FinishedAt,
+    DateTimeOffset? ArrivedAt,
+    DateTimeOffset? ServiceStartedAt,
+    DateTimeOffset? ServiceFinishedAt,
+    int? EffectiveDurationMinutes);
 
 public sealed record ServiceSessionItemSummary(
     Guid Id,
@@ -27,7 +31,17 @@ public sealed record ServiceSessionItemSummary(
     decimal LineSubtotal,
     decimal LineTotal);
 
-public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null);
+public sealed record ServiceSessionHistorySummary(
+    Guid Id,
+    string Action,
+    Guid ChangedByUserId,
+    string? BeforeJson,
+    string? AfterJson,
+    DateTimeOffset ChangedAt);
+
+public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null, DateTimeOffset? OccurredAt = null);
+
+public sealed record UpdateServiceSessionNotesRequest(string? Notes);
 
 public sealed record AddServiceSessionItemRequest(
     string ItemType,
@@ -38,4 +52,4 @@ public sealed record AddServiceSessionItemRequest(
     decimal UnitPrice,
     decimal DiscountAmount = 0);
 
-public sealed record FinishServiceSessionRequest(string? Notes = null);
+public sealed record FinishServiceSessionRequest(string? Notes = null, DateTimeOffset? OccurredAt = null);
