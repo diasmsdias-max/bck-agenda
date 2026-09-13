@@ -91,7 +91,7 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
             ]))),
             const SizedBox(height: 12),
             if (!session.isClosed) ...[
-              FilledButton.tonalIcon(onPressed: _loading ? null : _addItem, icon: const Icon(Icons.add_shopping_cart), label: const Text('Adicionar serviço/produto')),
+              FilledButton.tonalIcon(onPressed: _loading ? null : _addItem, icon: const Icon(Icons.add_shopping_cart), label: const Text('Adicionar produto/item extra')),
               const SizedBox(height: 8),
               OutlinedButton.icon(onPressed: _loading ? null : _finish, icon: const Icon(Icons.check_circle_outline), label: const Text('Finalizar atendimento')),
             ] else const Card(child: Padding(padding: EdgeInsets.all(16), child: Text('Atendimento finalizado e preparado para recebimento.'))),
