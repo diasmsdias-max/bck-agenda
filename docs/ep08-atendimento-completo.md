@@ -23,6 +23,16 @@ Fluxo-alvo:
 - manter API BCK como autoridade das regras críticas;
 - manter desenho compatível com banco local, fila offline e sincronização futura.
 
+## Regra de continuidade do tempo real
+
+O tempo efetivo do atendimento não depende de um cronômetro residente em memória nem de execução contínua do aplicativo em primeiro ou segundo plano. A fonte oficial é a diferença entre os timestamps reais persistidos de início e término.
+
+Depois que o atendimento for iniciado, trocar para outro aplicativo, bloquear a tela, colocar o BCK em segundo plano ou o Android encerrar o processo não pode pausar, reiniciar ou perder o atendimento em andamento. Ao retornar, a interface deve reconstruir o tempo decorrido a partir do horário real de início persistido.
+
+No modo offline, o início/término deve ser persistido localmente de forma durável e entrar na fila de sincronização. A posterior sincronização com a API não deve substituir a hora real do evento pela hora em que a conexão foi recuperada.
+
+Um contador visual atualizado enquanto a tela estiver aberta é apenas uma representação do tempo decorrido; nunca é a autoridade para o cálculo histórico ou para o SmartTime.
+
 ## Contratos previstos
 
 O desenho funcional prevê operações equivalentes a:
@@ -45,6 +55,8 @@ A implementação deve aproveitar o `ServiceSession` consolidado no EP07 e evolu
 6. O atendimento concluído deixa dados suficientes para o SmartTime futuro.
 7. A saída prepara a próxima etapa de venda/recebimento sem antecipar o módulo financeiro completo.
 8. Migrations, API .NET, contratos de segurança, Flutter analyze/test e build Android permanecem verdes.
+9. Sair do BCK, trocar de aplicativo, bloquear a tela ou o encerramento do processo pelo sistema operacional não pausa nem reinicia o tempo real já iniciado.
+10. A sincronização posterior de uma operação offline preserva o timestamp real capturado no dispositivo, sujeito às regras de consistência/auditoria da API.
 
 ## Estratégia de implementação
 
