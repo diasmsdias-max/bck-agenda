@@ -39,7 +39,7 @@ public sealed record ServiceSessionHistorySummary(
     string? AfterJson,
     DateTimeOffset ChangedAt);
 
-public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null);
+public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null, DateTimeOffset? OccurredAt = null);
 
 public sealed record UpdateServiceSessionNotesRequest(string? Notes);
 
@@ -52,4 +52,4 @@ public sealed record AddServiceSessionItemRequest(
     decimal UnitPrice,
     decimal DiscountAmount = 0);
 
-public sealed record FinishServiceSessionRequest(string? Notes = null);
+public sealed record FinishServiceSessionRequest(string? Notes = null, DateTimeOffset? OccurredAt = null);

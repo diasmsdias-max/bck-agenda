@@ -31,6 +31,8 @@ Depois que o atendimento for iniciado, trocar para outro aplicativo, bloquear a 
 
 No modo offline, o início/término deve ser persistido localmente de forma durável e entrar na fila de sincronização. A posterior sincronização com a API não deve substituir a hora real do evento pela hora em que a conexão foi recuperada.
 
+Para essas operações, o cliente envia `occurredAt` em UTC e conserva o mesmo payload e a mesma `Idempotency-Key` na fila local até a confirmação da API. A API mantém a autoridade: rejeita horários que violem a sequência chegada → início → fim e horários mais de cinco minutos no futuro em relação ao recebimento. Quando `occurredAt` não é informado por um cliente anterior, o horário de recebimento no servidor continua sendo usado para compatibilidade.
+
 Um contador visual atualizado enquanto a tela estiver aberta é apenas uma representação do tempo decorrido; nunca é a autoridade para o cálculo histórico ou para o SmartTime.
 
 ## Contratos previstos
