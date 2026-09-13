@@ -1,5 +1,6 @@
 using Bck.Api.Features.ServiceSessions;
 using Microsoft.AspNetCore.Http;
+using Xunit;
 
 namespace Bck.Api.Tests;
 
