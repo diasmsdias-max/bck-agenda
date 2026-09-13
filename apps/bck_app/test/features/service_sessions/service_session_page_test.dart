@@ -24,6 +24,7 @@ class _FakeServiceSessionApi extends ServiceSessionApi {
   Future<ServiceSession> open({
     required String appointmentId,
     String? notes,
+    String? idempotencyKey,
   }) async {
     openCalled = true;
     return _session(appointmentId: appointmentId);
