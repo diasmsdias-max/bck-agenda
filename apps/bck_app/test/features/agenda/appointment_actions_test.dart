@@ -1,4 +1,4 @@
-import 'package:bck_app/src/features/agenda/appointment_actions.dart';
+import 'package:bck_agenda/src/features/agenda/appointment_actions.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
