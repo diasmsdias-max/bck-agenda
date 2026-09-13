@@ -31,6 +31,14 @@ public sealed record ServiceSessionItemSummary(
     decimal LineSubtotal,
     decimal LineTotal);
 
+public sealed record ServiceSessionHistorySummary(
+    Guid Id,
+    string Action,
+    Guid ChangedByUserId,
+    string? BeforeJson,
+    string? AfterJson,
+    DateTimeOffset ChangedAt);
+
 public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null);
 
 public sealed record AddServiceSessionItemRequest(
