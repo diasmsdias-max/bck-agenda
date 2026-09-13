@@ -6,15 +6,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _FakeServiceSessionApi extends ServiceSessionApi {
-  _FakeServiceSessionApi({this.existing}) : super(dio: Dio());
+  _FakeServiceSessionApi({this.existing, this.lookupError}) : super(dio: Dio());
 
   final ServiceSession? existing;
+  final Object? lookupError;
   bool lookupCalled = false;
   bool openCalled = false;
 
   @override
   Future<ServiceSession?> getByAppointment(String appointmentId) async {
     lookupCalled = true;
+    if (lookupError != null) throw lookupError!;
     return existing;
   }
 
@@ -75,5 +77,24 @@ void main() {
     expect(api.openCalled, isFalse);
     expect(find.text('Resumo'), findsOneWidget);
     expect(find.text('Finalizar atendimento'), findsOneWidget);
+  });
+
+  testWidgets('does not open another session when resume lookup fails', (tester) async {
+    final api = _FakeServiceSessionApi(lookupError: Exception('network failure'));
+
+    await tester.pumpWidget(MaterialApp(
+      home: ServiceSessionPage(
+        api: api,
+        appointmentId: 'appointment-1',
+        clientName: 'Cliente Teste',
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+
+    expect(api.lookupCalled, isTrue);
+    expect(api.openCalled, isFalse);
+    expect(find.textContaining('Não foi possível concluir a operação.'), findsOneWidget);
+    expect(find.text('Tentar carregar atendimento novamente'), findsOneWidget);
   });
 }
