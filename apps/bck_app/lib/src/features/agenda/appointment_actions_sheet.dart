@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/bck_api_client.dart';
 import 'agenda_models.dart';
 
 /// Displays the operational actions available for an appointment.
