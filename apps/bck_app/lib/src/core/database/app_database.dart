@@ -34,6 +34,7 @@ class SyncQueue extends Table {
 @DriftDatabase(tables: [LocalMeta, SyncQueue])
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(_openConnection());
+  AppDatabase.forTesting(QueryExecutor executor) : super(executor);
 
   @override
   int get schemaVersion => 1;

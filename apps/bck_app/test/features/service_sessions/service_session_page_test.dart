@@ -16,7 +16,7 @@ class _FakeServiceSessionApi extends ServiceSessionApi {
   @override
   Future<ServiceSession?> getByAppointment(String appointmentId) async { lookupCalled = true; if (lookupError != null) throw lookupError!; return existing; }
   @override
-  Future<ServiceSession> open({required String appointmentId, String? notes, String? idempotencyKey}) async { openCalled = true; return _session(appointmentId: appointmentId); }
+  Future<ServiceSession> open({required String appointmentId, String? notes, String? idempotencyKey, DateTime? occurredAt}) async { openCalled = true; return _session(appointmentId: appointmentId); }
   @override
   Future<ServiceSession> updateNotes(String id, String? notes) async { updateNotesCalled = true; savedNotes = notes; return _session(notes: notes); }
 }

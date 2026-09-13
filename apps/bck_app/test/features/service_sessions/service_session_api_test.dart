@@ -1,7 +1,11 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:bck_agenda/src/core/database/app_database.dart';
 import 'package:bck_agenda/src/features/service_sessions/service_session_api.dart';
+import 'package:bck_agenda/src/features/service_sessions/service_session_command_queue.dart';
 import 'package:dio/dio.dart';
+import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
@@ -64,6 +68,85 @@ void main() {
     expect(second.length, inInclusiveRange(8, 128));
     expect(second, isNot(first));
   });
+
+  test('sends the captured real time on open and finish', () async {
+    final requests = <RequestOptions>[];
+    final dio = Dio()..httpClientAdapter = _RecordingAdapter(requests);
+    final api = ServiceSessionApi(dio: dio);
+    final openedAt = DateTime.parse('2026-09-13T12:30:00-03:00');
+    final finishedAt = DateTime.parse('2026-09-13T13:10:00-03:00');
+
+    await api.open(
+      appointmentId: 'appointment-1',
+      idempotencyKey: 'open-time-key',
+      occurredAt: openedAt,
+    );
+    await api.finish(
+      'session-1',
+      idempotencyKey: 'finish-time-key',
+      occurredAt: finishedAt,
+    );
+
+    expect(
+      (requests[0].data as Map<String, dynamic>)['occurredAt'],
+      '2026-09-13T15:30:00.000Z',
+    );
+    expect(
+      (requests[1].data as Map<String, dynamic>)['occurredAt'],
+      '2026-09-13T16:10:00.000Z',
+    );
+  });
+
+  test('keeps failed open durably and replays the same command later', () async {
+    final database = AppDatabase.forTesting(NativeDatabase.memory());
+    addTearDown(database.close);
+    final queue = ServiceSessionCommandQueue(
+      database,
+      groupId: 'group-1',
+      userId: 'user-1',
+    );
+    final adapter = _OfflineThenOnlineAdapter();
+    final dio = Dio()..httpClientAdapter = adapter;
+    final occurredAt = DateTime.utc(2026, 9, 13, 15, 30);
+    final api = ServiceSessionApi(
+      dio: dio,
+      commandQueue: queue,
+      now: () => occurredAt,
+    )..setAccessToken('access-token');
+
+    await expectLater(
+      api.open(
+        appointmentId: 'appointment-1',
+        idempotencyKey: 'durable-open-key',
+      ),
+      throwsA(isA<DioException>()),
+    );
+    final pending = await queue.pending();
+    expect(pending, hasLength(1));
+    expect(pending.single.idempotencyKey, 'durable-open-key');
+    expect(pending.single.occurredAt, occurredAt);
+    final otherTenantQueue = ServiceSessionCommandQueue(
+      database,
+      groupId: 'group-2',
+      userId: 'user-2',
+    );
+    expect(await otherTenantQueue.pending(), isEmpty);
+
+    adapter.online = true;
+    final resumed = await api.getByAppointment('appointment-1');
+
+    expect(resumed?.id, 'session-1');
+    expect(await queue.pending(), isEmpty);
+    final posts = adapter.requests.where((request) => request.method == 'POST');
+    expect(posts, hasLength(2));
+    for (final request in posts) {
+      expect(request.headers['Idempotency-Key'], 'durable-open-key');
+      expect(
+        (request.data as Map<String, dynamic>)['occurredAt'],
+        '2026-09-13T15:30:00.000Z',
+      );
+    }
+  });
 }
 
 class _RecordingAdapter implements HttpClientAdapter {
@@ -92,6 +175,37 @@ class _RecordingAdapter implements HttpClientAdapter {
           Headers.contentTypeHeader: ['application/json'],
         },
       );
+
+  @override
+  void close({bool force = false}) {}
+}
+
+class _OfflineThenOnlineAdapter implements HttpClientAdapter {
+  bool online = false;
+  final requests = <RequestOptions>[];
+
+  @override
+  Future<ResponseBody> fetch(
+    RequestOptions options,
+    Stream<List<int>>? requestStream,
+    Future<void>? cancelFuture,
+  ) async {
+    requests.add(options);
+    if (!online) {
+      throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.connectionError,
+        error: const SocketException('offline'),
+      );
+    }
+    return ResponseBody.fromString(
+      jsonEncode(_sessionJson),
+      options.method == 'POST' ? 201 : 200,
+      headers: {
+        Headers.contentTypeHeader: ['application/json'],
+      },
+    );
+  }
 
   @override
   void close({bool force = false}) {}
