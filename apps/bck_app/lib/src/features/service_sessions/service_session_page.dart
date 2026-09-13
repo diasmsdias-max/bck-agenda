@@ -24,6 +24,7 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
   ServiceSession? _session;
   bool _loading = false;
   bool _changed = false;
+  bool _allowPop = false;
   Object? _error;
 
   String _money(double value) =>
@@ -33,6 +34,14 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _openOrResume());
+  }
+
+  void _exit() {
+    if (!mounted || _allowPop) return;
+    setState(() => _allowPop = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop(_changed);
+    });
   }
 
   Future<T?> _busy<T>(Future<T> Function() action) async {
@@ -147,19 +156,14 @@ class _ServiceSessionPageState extends State<ServiceSessionPage> {
   Widget build(BuildContext context) {
     final session = _session;
     return PopScope<bool>(
-      canPop: true,
+      canPop: _allowPop,
       onPopInvokedWithResult: (didPop, result) {
-        if (didPop && result == null && _changed) {
-          // The route was already popped. The launcher awaits the route result,
-          // so explicit UI exits below return _changed before popping.
-        }
+        if (!didPop) _exit();
       },
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Atendimento'),
-          leading: BackButton(
-            onPressed: () => Navigator.of(context).pop(_changed),
-          ),
+          leading: BackButton(onPressed: _exit),
           actions: [
             if (session != null)
               IconButton(
