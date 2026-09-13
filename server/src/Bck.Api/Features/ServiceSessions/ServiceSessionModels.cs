@@ -41,6 +41,8 @@ public sealed record ServiceSessionHistorySummary(
 
 public sealed record OpenServiceSessionRequest(Guid AppointmentId, string? Notes = null);
 
+public sealed record UpdateServiceSessionNotesRequest(string? Notes);
+
 public sealed record AddServiceSessionItemRequest(
     string ItemType,
     Guid? ServiceId,
