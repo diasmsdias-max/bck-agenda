@@ -13,7 +13,11 @@ public sealed record ServiceSessionSummary(
     decimal DiscountTotal,
     decimal Total,
     DateTimeOffset CreatedAt,
-    DateTimeOffset? FinishedAt);
+    DateTimeOffset? FinishedAt,
+    DateTimeOffset? ArrivedAt,
+    DateTimeOffset? ServiceStartedAt,
+    DateTimeOffset? ServiceFinishedAt,
+    int? EffectiveDurationMinutes);
 
 public sealed record ServiceSessionItemSummary(
     Guid Id,
